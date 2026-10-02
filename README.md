@@ -1,10 +1,10 @@
-# 一键接入自定义路由 - cumob 篇 (Codex / Claude Code)
+# CUMOB 一键安装器：Codex + Claude Code
 
 [English](README.en.md)
 
-macOS / Windows 双击安装，把 Codex 和/或 Claude Code 一键接入 CUMOB 自定义路由。
+macOS / Windows 双击入口可安装 Codex；Bash 安装脚本同时支持 Codex 和 Claude Code，并安装最新的 `cumob-media-generation` Skill。
 
-> 安装时会提示选择目标平台（Codex / Claude Code / 两者都装）
+> 安装器会检测本机客户端，并让你选择 **Codex**、**Claude Code** 或 **两者都装**。使用 `--no-prompt` 时会自动为检测到的客户端安装。
 
 安装后自动完成：
 
@@ -16,10 +16,11 @@ macOS / Windows 双击安装，把 Codex 和/或 Claude Code 一键接入 CUMOB 
 
 ## 设计目标
 
-- 用户只需要下载很小的安装入口，双击即可
-- 安装时从 GitHub 实时拉取最新 Skill、配置模板、模型目录
-- 不打包真实 API Key
-- 重复安装可升级，不破坏用户已有的其他 Codex 配置
+- **Codex：** 配置 CUMOB provider、模型目录、权限策略和 `auth.json`，并安装 Skill。
+- **Claude Code：** 配置 `settings.json` 中的 CUMOB / OpenAI-compatible 环境变量，安装 Skill，并创建 `/cumob-media` 命令。
+- 用户只需要下载很小的安装入口，双击即可；安装时从 GitHub 实时拉取最新 Skill、配置模板和模型目录。
+- 不打包真实 API Key。
+- 重复安装可升级，并在覆盖 Codex 文件前自动备份；Claude Code 已有 Skill 目录也会先改名备份。
 
 ## 仓库
 
@@ -27,11 +28,38 @@ macOS / Windows 双击安装，把 Codex 和/或 Claude Code 一键接入 CUMOB 
 - Skill：[`66964432/cumob-media-generation`](https://github.com/66964432/cumob-media-generation)
 - 最新发布页：https://github.com/66964432/cumob-oneclick-installer/releases/latest
 
+## 客户端支持
+
+| 客户端 | 自动配置内容 | 默认目录 |
+| --- | --- | --- |
+| OpenAI Codex | CUMOB provider、模型目录、`config.toml`、`auth.json`、Skill | `~/.codex` |
+| Claude Code | `settings.json` 环境变量、Skill、`/cumob-media` 自定义命令 | `~/.claude` |
+
+### Codex
+
+Codex 安装会写入或更新：
+
+- `config.toml` 中的 CUMOB provider、默认模型和模型目录；
+- `auth.json` 中的 `OPENAI_API_KEY`；
+- `skills/cumob-media-generation/` 及图片 / 视频脚本。
+
+### Claude Code
+
+Claude Code 安装会：
+
+- 合并或创建 `settings.json`，保留原有设置，并写入 `CUMOB_API_KEY`、`CUMOB_BASE_URL`、`OPENAI_API_KEY` 和 `OPENAI_BASE_URL`；
+- 将 `cumob-media-generation` 安装到 `skills/cumob-media-generation/`；
+- 创建 `commands/cumob-media.md`，可在 Claude Code 中使用 `/cumob-media` 快速调用图片 / 视频 Skill；
+- 如果检测到 `claude` CLI，会优先尝试 `claude plugin install`，失败后自动回退到本地复制安装。
+
+> Claude Code 的 API Key 会写入 `settings.json` 的环境变量配置；请像保护其他本地密钥一样保护该文件。
+
 ## 安装前准备
 
 1. 已安装 [Codex](https://chatgpt.com/codex) 和/或 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 2. 电脑可访问 GitHub
 3. 准备好你的 CUMOB API Key（见下方「如何获取 CUMOB API Key」）
+4. 图片 / 视频生成建议准备 Node.js 18+ 或 Python 3；Windows 缺少运行时时安装器可自动安装 Node.js LTS
 
 ## 如何获取 CUMOB API Key
 
@@ -65,6 +93,8 @@ macOS / Windows 双击安装，把 Codex 和/或 Claude Code 一键接入 CUMOB 
 
 ## 一键安装（推荐）
 
+> **客户端实现差异：** `install.sh` 支持 Codex / Claude Code / 两者同时安装。Windows 的 `install-windows.cmd` / `install.ps1` 当前负责 Codex 配置和 Windows 图片运行时；Windows 用户如需安装 Claude Code，请在 Git Bash 或 WSL 中运行 `bash install.sh`。
+
 ### macOS
 
 1. 下载：[`install-macos.command`](https://github.com/66964432/cumob-oneclick-installer/releases/latest/download/install-macos.command)
@@ -75,19 +105,20 @@ macOS / Windows 双击安装，把 Codex 和/或 Claude Code 一键接入 CUMOB 
 4. 按提示输入 CUMOB API Key
    - 输入时不会显示字符，属正常现象
    - 如果本机已配置过 Key，可直接回车跳过
-5. 看到 `Installation finished` 后，关闭窗口
-6. 重启 Codex，或新建一个任务
+6. 看到 `Installation finished` 后，关闭窗口
+7. 重启 Codex / Claude Code，或新建一个任务
 
 ### Windows
 
 1. 下载：[`install-windows.cmd`](https://github.com/66964432/cumob-oneclick-installer/releases/latest/download/install-windows.cmd)
 2. 双击运行
 3. 如果 SmartScreen 拦截，选择“仍要运行”
-4. 按提示输入 CUMOB API Key
+4. 按提示选择 Codex / Claude Code / 两者都装
+5. 按提示输入 CUMOB API Key
    - 输入时不会显示字符，属正常现象
    - 如果本机已配置过 Key，可直接回车跳过
-5. 看到 `Installation finished` 后，按任意键关闭窗口
-6. 重启 Codex，或新建一个任务
+6. 看到 `Installation finished` 后，按任意键关闭窗口
+7. 重启 Codex，或新建一个任务
 
 Parallels 的 `\\Mac\...` 共享目录也可直接运行；启动器会临时映射盘符，以兼容 CMD 不支持 UNC 当前目录的限制。
 
@@ -100,7 +131,7 @@ Parallels 的 `\\Mac\...` 共享目录也可直接运行；启动器会临时映
 
 最快安装流程：
 
-**下载入口 → 双击安装 → 输入 API Key → 重启 Codex**
+**下载入口 → 双击安装 → 选择客户端 → 输入 API Key → 重启客户端**
 
 ## 从源码安装
 
@@ -143,22 +174,37 @@ cd cumob-oneclick-installer
 │   └── cumob-media-generation/
 └── backups/
     └── cumob-installer-YYYYMMDD-HHMMSS/
+
+<CLAUDE_HOME>/
+├── settings.json
+├── skills/
+│   └── cumob-media-generation/
+└── commands/
+    └── cumob-media.md
 ```
 
-安装器会自动配置：
+安装器会按所选客户端配置：
 
-- 最新 `cumob-media-generation` Skill
-- CUMOB 模型目录
-- CUMOB provider 配置
-- API Key 到 Codex `auth.json`
+- 最新 `cumob-media-generation` Skill；
+- CUMOB 模型目录和 provider 配置（Codex）；
+- CUMOB API Key（Codex 写入 `auth.json`，Claude Code 写入 `settings.json` 的环境变量）；
+- Claude Code 的 `/cumob-media` 命令（如果选择 Claude Code）。
 
 ## 如何确认安装成功
 
-打开 Codex 后检查：
+按所选客户端检查：
 
-1. 模型列表里能看到 CUMOB 模型，例如 `gpt-5.6-sol`
-2. 可以调用媒体 Skill：`cumob-media-generation`
-3. 生成图片时不再提示缺少 API Key / provider
+**Codex**
+
+1. 模型列表里能看到 CUMOB 模型，例如 `gpt-5.6-sol`；
+2. 可以调用媒体 Skill：`cumob-media-generation`；
+3. 生成图片时不再提示缺少 API Key / provider。
+
+**Claude Code（使用 `install.sh` 安装时）**
+
+1. `~/.claude/settings.json` 中存在 CUMOB 环境变量；
+2. `~/.claude/skills/cumob-media-generation/SKILL.md` 存在；
+3. 可以使用 `/cumob-media` 命令。
 
 ## 升级
 
@@ -220,9 +266,10 @@ base_url = "https://api.cumob.com/v1"
 
 - 发行包与仓库都不包含真实 API Key
 - API Key 不作为命令行参数传递，也不会写入安装日志
-- 新 Key 只写入 `auth.json` 的 `OPENAI_API_KEY`
-- 现有其他 auth 字段会保留
-- 不输入 Key 时，保留已有 `auth.json`
+- Codex 新 Key 只写入 `auth.json` 的 `OPENAI_API_KEY`；
+- Claude Code 新 Key 写入 `settings.json` 的 `CUMOB_API_KEY` 和 `OPENAI_API_KEY`；
+- 现有其他 auth / settings 字段会保留；
+- 不输入 Key 时，保留已有认证信息。
 
 非交互安装：
 
@@ -248,15 +295,22 @@ bash install.sh --dry-run
 .\install.ps1 -DryRun
 ```
 
-自定义 Codex 目录：
+自定义 Codex / Claude Code 目录：
 
 ```bash
-CODEX_HOME="/custom/path" bash install.sh
+CODEX_HOME="/custom/codex" CLAUDE_HOME="/custom/claude" bash install.sh
 ```
 
 ```powershell
 $env:CODEX_HOME = "D:\CodexHome"
+$env:CLAUDE_HOME = "$env:USERPROFILE\.claude"
 .\install.ps1
+```
+
+非交互安装会自动检测客户端；也可以先运行：
+
+```bash
+bash install.sh --dry-run
 ```
 
 自定义远程源：
@@ -295,13 +349,13 @@ $env:CUMOB_NODE_DIST_URL = "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x
 
 然后重新双击安装。
 
-### 2. 安装成功，但 Codex 里看不到变化
+### 2. 安装成功，但客户端里看不到变化
 
 请：
 
-1. 完全退出 Codex 再打开
-2. 或新建一个任务
-3. 再检查模型列表和 Skill
+1. 完全退出 Codex / Claude Code 再打开；
+2. 或新建一个任务；
+3. Codex 检查模型列表和 Skill，Claude Code 检查 `/cumob-media` 命令和 Skill。
 
 ### 3. API Key 从哪里获取？
 
@@ -312,23 +366,31 @@ $env:CUMOB_NODE_DIST_URL = "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x
 
 再次运行安装入口，重新输入正确 Key 即可。
 
-### 5. 会不会覆盖我原来的 Codex 配置？
+### 5. 会不会覆盖我原来的 Codex / Claude Code 配置？
 
 不会整份覆盖。安装器只会：
 
-- 更新 CUMOB 相关配置
-- 保留其他 provider / 插件 / 桌面设置
-- 先备份旧文件
+- 更新 CUMOB 相关配置；
+- 保留其他 Codex provider / 插件 / 桌面设置；
+- 合并 Claude Code 的 `settings.json.env`；
+- 在替换前备份 Codex 文件，并为已有 Claude Code Skill 目录创建 `.bak.YYYYMMDD-HHMMSS` 备份。
 
-备份目录：
+Codex 备份目录：
 
 - macOS：`~/.codex/backups/`
 - Windows：`%USERPROFILE%\.codex\backups\`
 
+Claude Code 备份：
+
+- 已有 Skill：`~/.claude/skills/cumob-media-generation.bak.YYYYMMDD-HHMMSS/`
+
 ## 运行要求
 
-- Codex 已安装
-- 网络可访问 GitHub
+- 已安装 Codex 和/或 Claude Code；
+- 网络可访问 GitHub；
+- macOS / Linux 需要 Bash、curl、unzip，以及 Node.js 18+ 或 Python 3；
+- Windows PowerShell 入口当前配置 Codex；Windows 上安装 Claude Code 请使用 Git Bash 或 WSL 运行 `bash install.sh`；
+- Claude Code CLI `claude` 可选：存在时安装器会优先尝试插件安装，失败会自动回退；
 - 图片 Skill 优先使用 Node.js 18+ 或 Python 3
 - Windows 安装器会自动检测运行时：
   - 已有 Node.js 18+ 或 Python 3：直接复用
@@ -390,6 +452,7 @@ cumob-oneclick-installer/
 │   └── generate-image-windows.cmd
 ├── scripts/
 ├── tests/
+├── .github/workflows/
 ├── README.md
 ├── README.en.md
 └── SOURCE.json

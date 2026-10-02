@@ -6,7 +6,7 @@
   "skill_version_policy": "install-time latest from main",
   "model_catalog_source": "payload/cumob-models.json",
   "distribution": "github-first",
-  "packaged_on": "2026-09-22",
+  "packaged_on": "2026-10-02",
   "display_name_zh": "一键接入自定义路由 - cumob 篇 (Codex / Claude Code)",
   "display_name_en": "One-Click Installer - CUMOB (Codex / Claude Code)"
 }

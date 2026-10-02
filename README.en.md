@@ -1,10 +1,10 @@
-# One-Click Custom Route Setup - CUMOB Edition (Codex / Claude Code)
+# CUMOB One-Click Installer: Codex + Claude Code
 
 [中文](README.md)
 
-One-click macOS / Windows installer that connects Codex and/or Claude Code to the CUMOB custom route.
+The macOS / Windows double-click entry installs Codex; the Bash installer supports Codex and Claude Code and installs the latest `cumob-media-generation` Skill.
 
-> During installation you will be prompted to select the target platform (Codex / Claude Code / both)
+> The installer detects available clients and lets you choose **Codex**, **Claude Code**, or **both**. With `--no-prompt`, it automatically installs for detected clients.
 
 After installation, it automatically:
 
@@ -16,10 +16,11 @@ After installation, it automatically:
 
 ## Goals
 
-- Users only need a tiny install entry file and a double-click
-- At install time, the latest Skill, config template, and model catalog are pulled from GitHub
-- Real API keys are never packaged
-- Re-running the installer upgrades safely without destroying unrelated Codex settings
+- **Codex:** Configure the CUMOB provider, model catalog, permission policy, and `auth.json`, then install the Skill.
+- **Claude Code:** Configure CUMOB / OpenAI-compatible environment variables in `settings.json`, install the Skill, and create the `/cumob-media` command.
+- Users only need a tiny install entry file and a double-click; the installer pulls the latest Skill, config template, and model catalog from GitHub at install time.
+- Real API keys are never packaged.
+- Re-running the installer upgrades safely, backing up Codex files first and renaming an existing Claude Code Skill directory before replacement.
 
 ## Repositories
 
@@ -27,11 +28,38 @@ After installation, it automatically:
 - Skill: [`66964432/cumob-media-generation`](https://github.com/66964432/cumob-media-generation)
 - Latest release: https://github.com/66964432/cumob-oneclick-installer/releases/latest
 
+## Client Support
+
+| Client | Automatically configured | Default directory |
+| --- | --- | --- |
+| OpenAI Codex | CUMOB provider, model catalog, `config.toml`, `auth.json`, and Skill | `~/.codex` |
+| Claude Code | `settings.json` environment variables, Skill, and `/cumob-media` custom command | `~/.claude` |
+
+### Codex
+
+The Codex install writes or updates:
+
+- The CUMOB provider, default model, and model catalog in `config.toml`
+- `OPENAI_API_KEY` in `auth.json`
+- `skills/cumob-media-generation/` and its image / video scripts
+
+### Claude Code
+
+The Claude Code install:
+
+- Merges or creates `settings.json`, preserving existing settings, and writes `CUMOB_API_KEY`, `CUMOB_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_BASE_URL`
+- Installs `cumob-media-generation` into `skills/cumob-media-generation/`
+- Creates `commands/cumob-media.md`, making `/cumob-media` available for quick image / video Skill usage
+- Tries `claude plugin install` first when the `claude` CLI is available, then falls back to a local copy if needed
+
+> The Claude Code API key is stored in the `settings.json` environment configuration. Protect this file like any other local secret.
+
 ## Prerequisites
 
-1. Codex and/or Claude Code is already installed: [Codex](https://chatgpt.com/codex) / [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+1. Codex and/or Claude Code is installed: [Codex](https://chatgpt.com/codex) / [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 2. The machine can access GitHub
 3. You have a CUMOB API Key ready (see “How to Get a CUMOB API Key” below)
+4. Node.js 18+ or Python 3 is recommended for image / video generation; on Windows, the installer can install Node.js LTS when neither runtime is present
 
 ## How to Get a CUMOB API Key
 
@@ -65,6 +93,8 @@ If the console labels differ slightly from the wording above, follow the UI on t
 
 ## One-Click Install (Recommended)
 
+> **Client implementation note:** `install.sh` supports Codex / Claude Code / both. The Windows `install-windows.cmd` / `install.ps1` entry currently configures Codex and the Windows image runtime. To install Claude Code on Windows, run `bash install.sh` from Git Bash or WSL.
+
 ### macOS
 
 1. Download: [`install-macos.command`](https://github.com/66964432/cumob-oneclick-installer/releases/latest/download/install-macos.command)
@@ -75,19 +105,20 @@ If the console labels differ slightly from the wording above, follow the UI on t
 4. Enter your CUMOB API Key when prompted
    - Input is hidden by design
    - Press Enter to keep an existing key
-5. Close the window after you see `Installation finished`
-6. Restart Codex, or create a new task
+6. Close the window after you see `Installation finished`
+7. Restart Codex / Claude Code, or create a new task
 
 ### Windows
 
 1. Download: [`install-windows.cmd`](https://github.com/66964432/cumob-oneclick-installer/releases/latest/download/install-windows.cmd)
 2. Double-click to run
 3. If SmartScreen blocks it, choose Run anyway
-4. Enter your CUMOB API Key when prompted
+4. Choose Codex / Claude Code / both when prompted
+5. Enter your CUMOB API Key when prompted
    - Input is hidden by design
    - Press Enter to keep an existing key
-5. Press any key to close the window after `Installation finished`
-6. Restart Codex, or create a new task
+6. Press any key to close the window after `Installation finished`
+7. Restart Codex, or create a new task
 
 Parallels shared folders under `\\Mac\...` are supported. The launcher temporarily maps the UNC path to a drive letter for CMD compatibility.
 
@@ -100,7 +131,7 @@ Even if you only download the entry file, the installer still pulls from GitHub:
 
 Fastest path:
 
-**Download entry → Double-click → Enter API Key → Restart Codex**
+**Download entry → Double-click → Choose client → Enter API Key → Restart client**
 
 ## Install From Source
 
@@ -143,22 +174,37 @@ Files written:
 │   └── cumob-media-generation/
 └── backups/
     └── cumob-installer-YYYYMMDD-HHMMSS/
+
+<CLAUDE_HOME>/
+├── settings.json
+├── skills/
+│   └── cumob-media-generation/
+└── commands/
+    └── cumob-media.md
 ```
 
-The installer configures:
+The installer configures, depending on the selected clients:
 
 - The latest `cumob-media-generation` Skill
-- The CUMOB model catalog
-- The CUMOB provider config
-- The API Key in Codex `auth.json`
+- The CUMOB model catalog and provider config (Codex)
+- The CUMOB API Key (Codex in `auth.json`; Claude Code in `settings.json` environment variables)
+- The `/cumob-media` command when Claude Code is selected
 
 ## Verify Success
 
-In Codex, check that:
+Check the selected client:
+
+**Codex**
 
 1. CUMOB models appear in the model list, for example `gpt-5.6-sol`
-2. The media Skill `cumob-media-generation` is available
+2. The `cumob-media-generation` Skill is available
 3. Image generation no longer complains about a missing API Key / provider
+
+**Claude Code**
+
+1. `~/.claude/settings.json` contains the CUMOB environment variables
+2. `~/.claude/skills/cumob-media-generation/SKILL.md` exists
+3. The `/cumob-media` command is available, or Claude Code can invoke the Skill directly
 
 ## Upgrade
 
@@ -178,6 +224,7 @@ The installer never fully overwrites `config.toml`. It will:
 - Remove the previous CUMOB provider section and installer-managed section
 - Write portable CUMOB settings and generate the local absolute model-catalog path
 - Preserve other providers / MCP / plugins / desktop settings / project permissions
+- Merge Claude Code's `settings.json.env` without replacing unrelated environment variables
 - Support re-runs without creating duplicate TOML keys
 
 Managed defaults:
@@ -220,9 +267,10 @@ Image and video models are provider settings and remain managed by `image_model`
 
 - Release packages and the repository never include real API keys
 - The API Key is not passed as a CLI argument and is not written to install logs
-- A new key is written only to `OPENAI_API_KEY` in `auth.json`
-- Existing unrelated auth fields are preserved
-- If no key is entered, the existing `auth.json` is kept
+- For Codex, a new key is written only to `OPENAI_API_KEY` in `auth.json`
+- For Claude Code, a new key is written to `CUMOB_API_KEY` and `OPENAI_API_KEY` in `settings.json`
+- Existing unrelated auth / settings fields are preserved
+- If no key is entered, existing authentication data is kept
 
 Non-interactive install:
 
@@ -248,15 +296,22 @@ bash install.sh --dry-run
 .\install.ps1 -DryRun
 ```
 
-Custom Codex home:
+Custom Codex / Claude Code homes:
 
 ```bash
-CODEX_HOME="/custom/path" bash install.sh
+CODEX_HOME="/custom/codex" CLAUDE_HOME="/custom/claude" bash install.sh
 ```
 
 ```powershell
 $env:CODEX_HOME = "D:\CodexHome"
+$env:CLAUDE_HOME = "$env:USERPROFILE\.claude"
 .\install.ps1
+```
+
+Preview platform detection and paths without modifying files:
+
+```bash
+bash install.sh --dry-run
 ```
 
 Custom remote sources:
@@ -295,13 +350,13 @@ Confirm that:
 
 Then run the installer again.
 
-### 2. Install succeeded, but Codex does not show the change
+### 2. Install succeeded, but the client does not show the change
 
 Try:
 
-1. Fully quit Codex and reopen it
+1. Fully quit Codex / Claude Code and reopen it
 2. Or create a new task
-3. Then re-check the model list and Skill
+3. In Codex, re-check the model list and Skill; in Claude Code, check the `/cumob-media` command and Skill
 
 ### 3. Where do I get an API Key?
 
@@ -312,23 +367,31 @@ Sign in, create / copy an API Key, then run the installer and paste it. See “H
 
 Run the install entry again and type the correct key.
 
-### 5. Will this overwrite my existing Codex config?
+### 5. Will this overwrite my existing Codex / Claude Code configuration?
 
 No full overwrite. The installer only:
 
 - Updates CUMOB-related settings
-- Preserves other providers / plugins / desktop settings
-- Backs up old files first
+- Preserves other Codex providers / plugins / desktop settings
+- Merges Claude Code's `settings.json.env`
+- Backs up Codex files before replacement and renames an existing Claude Code Skill directory to `.bak.YYYYMMDD-HHMMSS`
 
-Backup directories:
+Codex backup directories:
 
 - macOS: `~/.codex/backups/`
 - Windows: `%USERPROFILE%\.codex\backups\`
 
+Claude Code Skill backup:
+
+- `~/.claude/skills/cumob-media-generation.bak.YYYYMMDD-HHMMSS/`
+
 ## Requirements
 
-- Codex installed
+- Codex and/or Claude Code installed
 - Network access to GitHub
+- macOS / Linux: Bash, curl, unzip, and Node.js 18+ or Python 3
+- The Windows PowerShell entry currently configures Codex; use Git Bash or WSL with `bash install.sh` for Claude Code on Windows
+- The Claude Code CLI (`claude`) is optional; when available, the installer tries plugin installation first and falls back automatically
 - The image Skill prefers Node.js 18+ or Python 3
 - The Windows installer detects image runtimes automatically:
   - Reuses an existing Node.js 18+ or Python 3 installation
@@ -390,6 +453,7 @@ cumob-oneclick-installer/
 │   └── generate-image-windows.cmd
 ├── scripts/
 ├── tests/
+├── .github/workflows/
 ├── README.md
 ├── README.en.md
 └── SOURCE.json

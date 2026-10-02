@@ -4,6 +4,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cumob-installer-test.XXXXXX")"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 export CODEX_HOME="$TEST_ROOT/.codex"
+export CLAUDE_HOME="$TEST_ROOT/.claude"
 mkdir -p "$CODEX_HOME/skills/cumob-media-generation4codex" "$CODEX_HOME/skills/cumob-image-generation4codex" "$CODEX_HOME/model-catalogs"
 if [ "${CUMOB_LIVE_TEST:-0}" != "1" ]; then
   fixture_skill="$TEST_ROOT/fixture-skill"
