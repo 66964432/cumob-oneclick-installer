@@ -7,13 +7,14 @@ BEGIN {
 {
   line = $0
 
-  if (line == "# BEGIN CUMOB CODEX ONE-CLICK INSTALLER") {
+  # Recognise both the new marker and the legacy (Codex-only) marker
+  if (line == "# BEGIN CUMOB ONE-CLICK INSTALLER" || line == "# BEGIN CUMOB CODEX ONE-CLICK INSTALLER") {
     in_managed = 1
     next
   }
 
   if (in_managed) {
-    if (line == "# END CUMOB CODEX ONE-CLICK INSTALLER") {
+    if (line == "# END CUMOB ONE-CLICK INSTALLER" || line == "# END CUMOB CODEX ONE-CLICK INSTALLER") {
       in_managed = 0
       section = ""
       skip_section = 0

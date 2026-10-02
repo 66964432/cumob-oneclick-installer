@@ -9,12 +9,12 @@ Set-StrictMode -Version 2.0
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $payloadDir = Join-Path $scriptDir "payload"
-$defaultInstallerArchiveUrl = "https://github.com/66964432/cumob-codex-oneclick-installer/archive/refs/heads/main.zip"
+$defaultInstallerArchiveUrl = "https://github.com/66964432/cumob-oneclick-installer/archive/refs/heads/main.zip"
 $defaultSkillArchiveUrl = "https://github.com/66964432/cumob-media-generation/archive/refs/heads/main.zip"
-$defaultModelsUrl = "https://raw.githubusercontent.com/66964432/cumob-codex-oneclick-installer/main/payload/cumob-models.json"
-$defaultTemplateUrl = "https://raw.githubusercontent.com/66964432/cumob-codex-oneclick-installer/main/payload/cumob-config.template.toml"
-$defaultPowerShellFallbackUrl = "https://raw.githubusercontent.com/66964432/cumob-codex-oneclick-installer/main/payload/generate-image.ps1"
-$defaultWindowsImageLauncherUrl = "https://raw.githubusercontent.com/66964432/cumob-codex-oneclick-installer/main/payload/generate-image-windows.cmd"
+$defaultModelsUrl = "https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-models.json"
+$defaultTemplateUrl = "https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-config.template.toml"
+$defaultPowerShellFallbackUrl = "https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/generate-image.ps1"
+$defaultWindowsImageLauncherUrl = "https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/generate-image-windows.cmd"
 
 function Download-File {
     param(

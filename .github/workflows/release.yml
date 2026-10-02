@@ -48,7 +48,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/cumob-codex-oneclick-installer.zip
+            dist/cumob-oneclick-installer.zip
             dist/bootstrap-entry.zip
             dist/install-macos.command
             dist/install-windows.cmd

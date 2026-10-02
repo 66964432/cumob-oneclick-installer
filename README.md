@@ -1,8 +1,10 @@
-# codex 一键接入自定义路由 - cumob 篇
+# 一键接入自定义路由 - cumob 篇 (Codex / Claude Code)
 
 [English](README.en.md)
 
-macOS / Windows 双击安装，把 Codex 一键接入 CUMOB 自定义路由。
+macOS / Windows 双击安装，把 Codex 和/或 Claude Code 一键接入 CUMOB 自定义路由。
+
+> 安装时会提示选择目标平台（Codex / Claude Code / 两者都装）
 
 安装后自动完成：
 
@@ -10,6 +12,7 @@ macOS / Windows 双击安装，把 Codex 一键接入 CUMOB 自定义路由。
 2. 写入 CUMOB provider 配置
 3. 安装自定义模型目录 `cumob-models.json`
 4. 将 CUMOB API Key 合并进 Codex `auth.json`
+5. 支持选择为 Codex 或 Claude Code（或同时）安装
 
 ## 设计目标
 
@@ -20,13 +23,13 @@ macOS / Windows 双击安装，把 Codex 一键接入 CUMOB 自定义路由。
 
 ## 仓库
 
-- 安装器：[`66964432/cumob-codex-oneclick-installer`](https://github.com/66964432/cumob-codex-oneclick-installer)
+- 安装器：[`66964432/cumob-oneclick-installer`](https://github.com/66964432/cumob-oneclick-installer)
 - Skill：[`66964432/cumob-media-generation`](https://github.com/66964432/cumob-media-generation)
-- 最新发布页：https://github.com/66964432/cumob-codex-oneclick-installer/releases/latest
+- 最新发布页：https://github.com/66964432/cumob-oneclick-installer/releases/latest
 
 ## 安装前准备
 
-1. 已安装 [Codex](https://chatgpt.com/codex)
+1. 已安装 [Codex](https://chatgpt.com/codex) 和/或 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 2. 电脑可访问 GitHub
 3. 准备好你的 CUMOB API Key（见下方「如何获取 CUMOB API Key」）
 
@@ -64,7 +67,7 @@ macOS / Windows 双击安装，把 Codex 一键接入 CUMOB 自定义路由。
 
 ### macOS
 
-1. 下载：[`install-macos.command`](https://github.com/66964432/cumob-codex-oneclick-installer/releases/latest/download/install-macos.command)
+1. 下载：[`install-macos.command`](https://github.com/66964432/cumob-oneclick-installer/releases/latest/download/install-macos.command)
 2. 双击运行
 3. 如果系统提示“无法打开”，请：
    - 右键文件 → 选择“打开”
@@ -77,7 +80,7 @@ macOS / Windows 双击安装，把 Codex 一键接入 CUMOB 自定义路由。
 
 ### Windows
 
-1. 下载：[`install-windows.cmd`](https://github.com/66964432/cumob-codex-oneclick-installer/releases/latest/download/install-windows.cmd)
+1. 下载：[`install-windows.cmd`](https://github.com/66964432/cumob-oneclick-installer/releases/latest/download/install-windows.cmd)
 2. 双击运行
 3. 如果 SmartScreen 拦截，选择“仍要运行”
 4. 按提示输入 CUMOB API Key
@@ -104,16 +107,16 @@ Parallels 的 `\\Mac\...` 共享目录也可直接运行；启动器会临时映
 macOS / Linux：
 
 ```bash
-git clone https://github.com/66964432/cumob-codex-oneclick-installer.git
-cd cumob-codex-oneclick-installer
+git clone https://github.com/66964432/cumob-oneclick-installer.git
+cd cumob-oneclick-installer
 bash install.sh
 ```
 
 Windows PowerShell：
 
 ```powershell
-git clone https://github.com/66964432/cumob-codex-oneclick-installer.git
-cd cumob-codex-oneclick-installer
+git clone https://github.com/66964432/cumob-oneclick-installer.git
+cd cumob-oneclick-installer
 .\install.ps1
 ```
 
@@ -259,9 +262,9 @@ $env:CODEX_HOME = "D:\CodexHome"
 自定义远程源：
 
 ```bash
-export CUMOB_INSTALLER_URL="https://github.com/66964432/cumob-codex-oneclick-installer/archive/refs/heads/main.zip"
+export CUMOB_INSTALLER_URL="https://github.com/66964432/cumob-oneclick-installer/archive/refs/heads/main.zip"
 export CUMOB_SKILL_URL="https://github.com/66964432/cumob-media-generation/archive/refs/heads/main.zip"
-export CUMOB_MODELS_URL="https://raw.githubusercontent.com/66964432/cumob-codex-oneclick-installer/main/payload/cumob-models.json"
+export CUMOB_MODELS_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-models.json"
 bash install.sh
 ```
 
@@ -287,7 +290,7 @@ $env:CUMOB_NODE_DIST_URL = "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x
 - 能打开 GitHub
 - 没有被公司代理 / 防火墙拦截
 - 可访问：
-  - `https://github.com/66964432/cumob-codex-oneclick-installer`
+  - `https://github.com/66964432/cumob-oneclick-installer`
   - `https://github.com/66964432/cumob-media-generation`
 
 然后重新双击安装。
@@ -375,7 +378,7 @@ bash build-release.sh
 ## 仓库结构
 
 ```text
-cumob-codex-oneclick-installer/
+cumob-oneclick-installer/
 ├── install-macos.command
 ├── install-windows.cmd
 ├── install.sh

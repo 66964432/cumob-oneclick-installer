@@ -1,5 +1,5 @@
 {
-  "installer_repository": "https://github.com/66964432/cumob-codex-oneclick-installer",
+  "installer_repository": "https://github.com/66964432/cumob-oneclick-installer",
   "installer_branch": "main",
   "skill_repository": "https://github.com/66964432/cumob-media-generation",
   "skill_branch": "main",
@@ -7,5 +7,6 @@
   "model_catalog_source": "payload/cumob-models.json",
   "distribution": "github-first",
   "packaged_on": "2026-09-22",
-  "display_name_zh": "codex 一键接入自定义路由 - cumob 篇"
+  "display_name_zh": "一键接入自定义路由 - cumob 篇 (Codex / Claude Code)",
+  "display_name_en": "One-Click Installer - CUMOB (Codex / Claude Code)"
 }

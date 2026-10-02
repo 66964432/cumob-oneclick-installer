@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 
 set "SCRIPT_DIR=%~dp0"
-set "DEFAULT_INSTALLER_URL=https://github.com/66964432/cumob-codex-oneclick-installer/archive/refs/heads/main.zip"
+set "DEFAULT_INSTALLER_URL=https://github.com/66964432/cumob-oneclick-installer/archive/refs/heads/main.zip"
 
 pushd "%SCRIPT_DIR%" >nul 2>&1
 if errorlevel 1 (

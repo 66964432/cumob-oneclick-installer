@@ -1,8 +1,10 @@
-# Codex One-Click Custom Route Setup - CUMOB Edition
+# One-Click Custom Route Setup - CUMOB Edition (Codex / Claude Code)
 
 [中文](README.md)
 
-One-click macOS / Windows installer that connects Codex to the CUMOB custom route.
+One-click macOS / Windows installer that connects Codex and/or Claude Code to the CUMOB custom route.
+
+> During installation you will be prompted to select the target platform (Codex / Claude Code / both)
 
 After installation, it automatically:
 
@@ -10,6 +12,7 @@ After installation, it automatically:
 2. Writes the CUMOB provider configuration
 3. Installs the custom model catalog `cumob-models.json`
 4. Merges the CUMOB API Key into Codex `auth.json`
+5. Supports choosing to install for Codex or Claude Code (or both)
 
 ## Goals
 
@@ -20,13 +23,13 @@ After installation, it automatically:
 
 ## Repositories
 
-- Installer: [`66964432/cumob-codex-oneclick-installer`](https://github.com/66964432/cumob-codex-oneclick-installer)
+- Installer: [`66964432/cumob-oneclick-installer`](https://github.com/66964432/cumob-oneclick-installer)
 - Skill: [`66964432/cumob-media-generation`](https://github.com/66964432/cumob-media-generation)
-- Latest release: https://github.com/66964432/cumob-codex-oneclick-installer/releases/latest
+- Latest release: https://github.com/66964432/cumob-oneclick-installer/releases/latest
 
 ## Prerequisites
 
-1. Codex is already installed: [Codex](https://chatgpt.com/codex)
+1. Codex and/or Claude Code is already installed: [Codex](https://chatgpt.com/codex) / [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 2. The machine can access GitHub
 3. You have a CUMOB API Key ready (see “How to Get a CUMOB API Key” below)
 
@@ -64,7 +67,7 @@ If the console labels differ slightly from the wording above, follow the UI on t
 
 ### macOS
 
-1. Download: [`install-macos.command`](https://github.com/66964432/cumob-codex-oneclick-installer/releases/latest/download/install-macos.command)
+1. Download: [`install-macos.command`](https://github.com/66964432/cumob-oneclick-installer/releases/latest/download/install-macos.command)
 2. Double-click to run
 3. If macOS blocks the file:
    - Right-click the file → Open
@@ -77,7 +80,7 @@ If the console labels differ slightly from the wording above, follow the UI on t
 
 ### Windows
 
-1. Download: [`install-windows.cmd`](https://github.com/66964432/cumob-codex-oneclick-installer/releases/latest/download/install-windows.cmd)
+1. Download: [`install-windows.cmd`](https://github.com/66964432/cumob-oneclick-installer/releases/latest/download/install-windows.cmd)
 2. Double-click to run
 3. If SmartScreen blocks it, choose Run anyway
 4. Enter your CUMOB API Key when prompted
@@ -104,16 +107,16 @@ Fastest path:
 macOS / Linux:
 
 ```bash
-git clone https://github.com/66964432/cumob-codex-oneclick-installer.git
-cd cumob-codex-oneclick-installer
+git clone https://github.com/66964432/cumob-oneclick-installer.git
+cd cumob-oneclick-installer
 bash install.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-git clone https://github.com/66964432/cumob-codex-oneclick-installer.git
-cd cumob-codex-oneclick-installer
+git clone https://github.com/66964432/cumob-oneclick-installer.git
+cd cumob-oneclick-installer
 .\install.ps1
 ```
 
@@ -259,9 +262,9 @@ $env:CODEX_HOME = "D:\CodexHome"
 Custom remote sources:
 
 ```bash
-export CUMOB_INSTALLER_URL="https://github.com/66964432/cumob-codex-oneclick-installer/archive/refs/heads/main.zip"
+export CUMOB_INSTALLER_URL="https://github.com/66964432/cumob-oneclick-installer/archive/refs/heads/main.zip"
 export CUMOB_SKILL_URL="https://github.com/66964432/cumob-media-generation/archive/refs/heads/main.zip"
-export CUMOB_MODELS_URL="https://raw.githubusercontent.com/66964432/cumob-codex-oneclick-installer/main/payload/cumob-models.json"
+export CUMOB_MODELS_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-models.json"
 bash install.sh
 ```
 
@@ -287,7 +290,7 @@ Confirm that:
 - GitHub is reachable
 - No corporate proxy / firewall is blocking the download
 - These repositories are accessible:
-  - `https://github.com/66964432/cumob-codex-oneclick-installer`
+  - `https://github.com/66964432/cumob-oneclick-installer`
   - `https://github.com/66964432/cumob-media-generation`
 
 Then run the installer again.
@@ -375,7 +378,7 @@ bash build-release.sh
 ## Repository Layout
 
 ```text
-cumob-codex-oneclick-installer/
+cumob-oneclick-installer/
 ├── install-macos.command
 ├── install-windows.cmd
 ├── install.sh

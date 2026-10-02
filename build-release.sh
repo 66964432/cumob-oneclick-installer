@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PACKAGE_NAME="cumob-codex-oneclick-installer"
+PACKAGE_NAME="cumob-oneclick-installer"
 ARCHIVE_PATH="$ROOT_DIR/dist/$PACKAGE_NAME.zip"
 MANIFEST_PATH="$ROOT_DIR/MANIFEST.sha256"
 BOOTSTRAP_DIR="$ROOT_DIR/dist/bootstrap-entry"
