@@ -11,7 +11,6 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $payloadDir = Join-Path $scriptDir "payload"
 $defaultInstallerArchiveUrl = "https://github.com/66964432/cumob-oneclick-installer/archive/refs/heads/main.zip"
 $defaultSkillArchiveUrl = "https://github.com/66964432/cumob-media-generation/archive/refs/heads/main.zip"
-$defaultModelsUrl = "https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-models.json"
 $defaultTemplateUrl = "https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-config.template.toml"
 $defaultPowerShellFallbackUrl = "https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/generate-image.ps1"
 $defaultWindowsImageLauncherUrl = "https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/generate-image-windows.cmd"
@@ -313,54 +312,161 @@ function Ensure-ImageRuntime {
     return $status
 }
 
-function Get-DefaultModelFromCatalog {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path
-    )
+function Get-CatalogProperty {
+    param($Object, [string]$Name)
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -ne $property) { return ,$property.Value }
+    return $null
+}
 
-    try {
-        $catalog = [IO.File]::ReadAllText($Path) | ConvertFrom-Json
-    } catch {
-        throw "Invalid model catalog JSON: $($_.Exception.Message)"
-    }
-
-    $models = @($catalog.models)
-    $eligible = @($models | Where-Object {
-        $_ -and
-        $_.supported_in_api -eq $true -and
-        $_.visibility -eq "list" -and
-        -not [string]::IsNullOrWhiteSpace([string]$_.slug) -and
-        $null -ne $_.priority -and
-        -not [string]::IsNullOrWhiteSpace([string]$_.default_reasoning_level)
-    })
-    if ($eligible.Count -eq 0) {
-        throw "Invalid model catalog: no visible API-supported model with a valid priority"
-    }
-
-    $selected = $null
-    foreach ($candidate in $eligible) {
-        if ($null -eq $selected -or [int]$candidate.priority -lt [int]$selected.priority) {
-            $selected = $candidate
+function Assert-CodexRemoteDiscoveryConfig {
+    param([string]$ConfigPath)
+    if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) { return }
+    $section = ""
+    $profiles = @{}
+    foreach ($line in [IO.File]::ReadAllLines($ConfigPath)) {
+        $line = $line -replace '^(\s*)["''](model_provider|model_catalog_json|features|api_key_model_discovery)["''](?=\s*[=.])', '$1$2'
+        if ($line -match '^\s*\[([^\[\]]+)\]\s*(?:#.*)?$') {
+            $section = $Matches[1] -replace '[\s"'']', ''
+            continue
+        }
+        if ($section -eq "" -and $line -match '^\s*features\s*=') {
+            throw "Inline features configuration is not supported by this installer. Convert it to a [features] table first."
+        }
+        if ($section -eq "" -and $line -match '^\s*features\.' -and $line -notmatch '^\s*["'']?features["'']?\.api_key_model_discovery\s*=') {
+            throw "Dotted features configuration is not supported by this installer. Convert it to a [features] table first."
+        }
+        if ($section -match '^profiles\.([^.]+)(?:\.|$)') {
+            $name = $Matches[1]
+            if (-not $profiles.ContainsKey($name)) { $profiles[$name] = @{} }
+            $profile = $profiles[$name]
+            if ($section -match '^profiles\.[^.]+$') {
+                if ($line -match '^\s*model_provider\s*=\s*["'']([^"'']+)["'']') { $profile.Provider = $Matches[1] }
+                if ($line -match '^\s*model_catalog_json\s*=') { $profile.Local = $true }
+                if ($line -match '^\s*features\.api_key_model_discovery\s*=\s*false\b') { $profile.Disabled = $true }
+            }
+            if ($section -match '^profiles\.[^.]+\.features$' -and $line -match '^\s*api_key_model_discovery\s*=\s*false\b') { $profile.Disabled = $true }
         }
     }
-    return @{
-        Slug = [string]$selected.slug
-        ReasoningLevel = [string]$selected.default_reasoning_level
+    foreach ($name in $profiles.Keys) {
+        $profile = $profiles[$name]
+        if ((-not $profile.ContainsKey('Provider') -or $profile.Provider -eq 'cumob') -and
+            (($profile.ContainsKey('Local') -and $profile.Local) -or ($profile.ContainsKey('Disabled') -and $profile.Disabled))) {
+            throw "Profile $name overrides remote model discovery. Remove its model_catalog_json / disabled api_key_model_discovery setting, then retry. Other providers are left unchanged."
+        }
+    }
+}
+
+function Get-DefaultModelFromCatalog {
+    param([Parameter(Mandatory = $true)]$Catalog)
+    $models = Get-CatalogProperty $Catalog 'models'
+    if ($models -isnot [Array] -or $models.Count -eq 0) {
+        throw "Remote catalog must contain a nonempty models array."
+    }
+    $slugs = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $selected = $null
+    foreach ($model in $models) {
+        $slug = Get-CatalogProperty $model 'slug'
+        $priority = Get-CatalogProperty $model 'priority'
+        $displayName = Get-CatalogProperty $model 'display_name'
+        if ($slug -isnot [string] -or $slug -cnotmatch '^[A-Za-z0-9._:/-]+$' -or -not $slugs.Add($slug)) {
+            throw "Remote catalog contains an invalid or duplicate model slug."
+        }
+        if (($priority -isnot [int] -and $priority -isnot [long]) -or
+            $displayName -isnot [string] -or [string]::IsNullOrWhiteSpace($displayName)) {
+            throw "Remote catalog contains an invalid priority or display_name."
+        }
+        $supported = Get-CatalogProperty $model 'supported_in_api'
+        if ($supported -isnot [bool] -or $supported -ne $true -or (Get-CatalogProperty $model 'visibility') -cne 'list') { continue }
+        $effort = Get-CatalogProperty $model 'default_reasoning_level'
+        $levels = Get-CatalogProperty $model 'supported_reasoning_levels'
+        $supportedEfforts = @($levels | ForEach-Object { Get-CatalogProperty $_ 'effort' })
+        if ($effort -isnot [string] -or $effort -cnotmatch '^[a-z]+$' -or $levels -isnot [Array] -or $supportedEfforts -cnotcontains $effort) {
+            throw "Remote catalog contains an unsupported default reasoning level."
+        }
+        if ($null -eq $selected -or $priority -lt $selected.priority) { $selected = $model }
+    }
+    if ($null -eq $selected) { throw "Remote catalog has no visible API-supported default model." }
+    return @{ Slug = [string]$selected.slug; ReasoningLevel = [string]$selected.default_reasoning_level }
+}
+
+function New-CumobCatalogHttpClient {
+    Add-Type -AssemblyName System.Net.Http
+    $handler = New-Object Net.Http.HttpClientHandler
+    $handler.AllowAutoRedirect = $false
+    return [Net.Http.HttpClient]::new($handler)
+}
+
+function Get-RemoteCatalogDefaults {
+    param([string]$Url, [string]$ApiKey)
+    if ([string]::IsNullOrWhiteSpace($ApiKey) -or $ApiKey -match '[\r\n]') {
+        throw "A CUMOB API Key is required to validate the remote catalog. Supply a key or keep an existing OPENAI_API_KEY in auth.json."
+    }
+    if ($Url -cnotmatch '^https://api\.cumob\.(com|cn)/v1/codex/models$') {
+        throw "Catalog URL must be the selected CUMOB HTTPS /v1/codex/models endpoint."
+    }
+    $clientVersion = $env:CUMOB_CODEX_CLIENT_VERSION
+    if (-not $clientVersion) {
+        $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
+        if ($codexCommand) {
+            $versionText = (& $codexCommand --version 2>$null | Out-String)
+            if ($versionText -match '\b\d+\.\d+\.\d+\b') { $clientVersion = $Matches[0] }
+        }
+    }
+    if ($clientVersion) {
+        if ($clientVersion -notmatch '^\d+\.\d+\.\d+$') { throw "CUMOB_CODEX_CLIENT_VERSION must use major.minor.patch." }
+        $Url = "$Url`?client_version=$clientVersion"
+    } else {
+        Write-Host "Codex version was not detected; requesting the server's default catalog. Keep Codex updated to use remote model discovery."
+    }
+    $client = New-CumobCatalogHttpClient
+    $client.Timeout = [TimeSpan]::FromSeconds(20)
+    $cancel = [Threading.CancellationTokenSource]::new(20000)
+    $response = $null
+    $stream = $null
+    $memory = New-Object IO.MemoryStream
+    try {
+        try { $client.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $ApiKey) }
+        catch { throw 'CUMOB API Key is not valid for the Authorization header.' }
+        $client.DefaultRequestHeaders.Accept.ParseAdd('application/json')
+        try {
+            $response = $client.GetAsync($Url, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $cancel.Token).GetAwaiter().GetResult()
+        } catch {
+            throw "Remote catalog request failed (network error or timeout). Existing Codex files were not changed."
+        }
+        if (-not $response.IsSuccessStatusCode) {
+            throw "Remote catalog request failed (HTTP $([int]$response.StatusCode)). Check your API Key and CUMOB endpoint; redirects are not followed."
+        }
+        $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $buffer = New-Object byte[] 8192
+        do {
+            try { $count = $stream.ReadAsync($buffer, 0, $buffer.Length, $cancel.Token).GetAwaiter().GetResult() }
+            catch { throw "Remote catalog request failed (network error or timeout). Existing Codex files were not changed." }
+            if (($memory.Length + $count) -gt 1048576) { throw "Remote catalog exceeds the 1 MiB limit." }
+            $memory.Write($buffer, 0, $count)
+        } while ($count -gt 0)
+        try { $catalog = [Text.Encoding]::UTF8.GetString($memory.ToArray()) | ConvertFrom-Json }
+        catch { throw "Remote catalog did not return valid JSON." }
+        return (Get-DefaultModelFromCatalog -Catalog $catalog)
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if ($null -ne $response) { $response.Dispose() }
+        $memory.Dispose()
+        $client.Dispose()
+        $cancel.Dispose()
     }
 }
 
 function Ensure-RuntimeAssets {
-    $catalogSource = Join-Path $payloadDir "cumob-models.json"
     $templateSource = Join-Path $payloadDir "cumob-config.template.toml"
     $powerShellFallbackSource = Join-Path $payloadDir "generate-image.ps1"
     $windowsImageLauncherSource = Join-Path $payloadDir "generate-image-windows.cmd"
 
-    if ((Test-Path -LiteralPath $catalogSource -PathType Leaf) -and
-        (Test-Path -LiteralPath $templateSource -PathType Leaf) -and
+    if ((Test-Path -LiteralPath $templateSource -PathType Leaf) -and
         (Test-Path -LiteralPath $powerShellFallbackSource -PathType Leaf) -and
         (Test-Path -LiteralPath $windowsImageLauncherSource -PathType Leaf)) {
         return @{
-            CatalogSource = $catalogSource
             TemplateSource = $templateSource
             PowerShellFallbackSource = $powerShellFallbackSource
             WindowsImageLauncherSource = $windowsImageLauncherSource
@@ -372,17 +478,9 @@ function Ensure-RuntimeAssets {
     $payloadRuntime = Join-Path $downloadRoot "payload"
     New-Item -ItemType Directory -Force -Path $payloadRuntime | Out-Null
 
-    $catalogTarget = Join-Path $payloadRuntime "cumob-models.json"
     $templateTarget = Join-Path $payloadRuntime "cumob-config.template.toml"
     $powerShellFallbackTarget = Join-Path $payloadRuntime "generate-image.ps1"
     $windowsImageLauncherTarget = Join-Path $payloadRuntime "generate-image-windows.cmd"
-
-    if (Test-Path -LiteralPath $catalogSource -PathType Leaf) {
-        Copy-Item -LiteralPath $catalogSource -Destination $catalogTarget
-    } else {
-        $modelsUrl = if ($env:CUMOB_MODELS_URL) { $env:CUMOB_MODELS_URL } else { $defaultModelsUrl }
-        Download-File -Url $modelsUrl -Destination $catalogTarget
-    }
 
     if (Test-Path -LiteralPath $templateSource -PathType Leaf) {
         Copy-Item -LiteralPath $templateSource -Destination $templateTarget
@@ -405,15 +503,13 @@ function Ensure-RuntimeAssets {
         Download-File -Url $windowsImageLauncherUrl -Destination $windowsImageLauncherTarget
     }
 
-    if (-not (Test-Path -LiteralPath $catalogTarget -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $templateTarget -PathType Leaf) -or
+    if (-not (Test-Path -LiteralPath $templateTarget -PathType Leaf) -or
         -not (Test-Path -LiteralPath $powerShellFallbackTarget -PathType Leaf) -or
         -not (Test-Path -LiteralPath $windowsImageLauncherTarget -PathType Leaf)) {
         throw "Failed to obtain installer assets from GitHub. Existing Codex files were not changed."
     }
 
     return @{
-        CatalogSource = $catalogTarget
         TemplateSource = $templateTarget
         PowerShellFallbackSource = $powerShellFallbackTarget
         WindowsImageLauncherSource = $windowsImageLauncherTarget
@@ -427,7 +523,7 @@ function Normalize-CumobBaseUrl {
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return $null
     }
-    $trimmed = $Value.Trim().TrimEnd('/')
+    $trimmed = $Value.Trim().TrimEnd('/') -replace '^(?i)http://', 'https://'
     if ($trimmed -notmatch '^(?i)https?://api\.cumob\.(com|cn)(?:/v1)?$') {
         return $null
     }
@@ -661,8 +757,7 @@ $skillsDir = Join-Path $codexHome "skills"
 $skillTarget = Join-Path $skillsDir "cumob-media-generation"
 $legacySkillTarget = Join-Path $skillsDir "cumob-media-generation4codex"
 $previousLegacySkillTarget = Join-Path $skillsDir "cumob-image-generation4codex"
-$catalogDir = Join-Path $codexHome "model-catalogs"
-$catalogTarget = Join-Path $catalogDir "cumob-models.json"
+$catalogTarget = Join-Path $codexHome "model-catalogs/cumob-models.json"
 $configPath = Join-Path $codexHome "config.toml"
 $authPath = Join-Path $codexHome "auth.json"
 
@@ -670,17 +765,15 @@ if ($DryRun) {
     Write-Host "Dry run only; no files will be changed."
     Write-Host "Codex home: $codexHome"
     Write-Host "Skill target: $skillTarget"
-    Write-Host "Catalog target: $catalogTarget"
+    Write-Host "Remote model catalog: $(Normalize-CumobBaseUrl $(if ($env:CUMOB_BASE_URL) { $env:CUMOB_BASE_URL } else { 'https://api.cumob.com/v1' }))/codex/models"
     Write-Host "Config target: $configPath"
     Write-Host "Auth target: $authPath"
     $null = Ensure-ImageRuntime -DryRun
     $dryRunInstallerUrl = if ($env:CUMOB_INSTALLER_URL) { $env:CUMOB_INSTALLER_URL } else { $defaultInstallerArchiveUrl }
     $dryRunSkillUrl = if ($env:CUMOB_SKILL_URL) { $env:CUMOB_SKILL_URL } else { $defaultSkillArchiveUrl }
-    $dryRunModelsUrl = if ($env:CUMOB_MODELS_URL) { $env:CUMOB_MODELS_URL } else { $defaultModelsUrl }
     $dryRunPowerShellFallbackUrl = if ($env:CUMOB_POWERSHELL_FALLBACK_URL) { $env:CUMOB_POWERSHELL_FALLBACK_URL } else { $defaultPowerShellFallbackUrl }
     Write-Host "Installer source: $dryRunInstallerUrl"
     Write-Host "Skill source: $dryRunSkillUrl"
-    Write-Host "Models source: $dryRunModelsUrl"
     Write-Host "Windows PowerShell fallback source: $dryRunPowerShellFallbackUrl"
     $dryRunRuntime = Ensure-ImageRuntime -DryRun
     if ($dryRunRuntime.Kind -eq "none") {
@@ -694,17 +787,16 @@ if ($DryRun) {
 }
 
 $runtimeAssets = Ensure-RuntimeAssets
-$catalogSource = $runtimeAssets.CatalogSource
 $templateSource = $runtimeAssets.TemplateSource
 $powerShellFallbackSource = $runtimeAssets.PowerShellFallbackSource
 $windowsImageLauncherSource = $runtimeAssets.WindowsImageLauncherSource
 $downloadRoot = $runtimeAssets.DownloadRoot
-$catalogDefaults = Get-DefaultModelFromCatalog -Path $catalogSource
-$defaultModel = $catalogDefaults.Slug
-$defaultReasoningLevel = $catalogDefaults.ReasoningLevel
 
 try {
-    $imageRuntime = Ensure-ImageRuntime
+    $templateText = [IO.File]::ReadAllText($templateSource)
+    if (-not $templateText.Contains('model_catalog_url = "{{CUMOB_BASE_URL}}/codex/models"') -or $templateText -match '(?m)^\s*model_catalog_json\s*=') {
+        throw "Config template does not support remote catalogs. Update your template; existing files were not changed."
+    }
     $skillSource = $env:CUMOB_SKILL_SOURCE_DIR
     if ([string]::IsNullOrWhiteSpace($skillSource)) {
         if ([string]::IsNullOrWhiteSpace($downloadRoot)) {
@@ -761,22 +853,25 @@ try {
 
     $cumobBaseUrl = Resolve-CumobBaseUrl -ConfigPath $configPath -NoPrompt:$NoPrompt
 
-    $authObject = $null
-    if (-not [string]::IsNullOrWhiteSpace($apiKey)) {
-        if (Test-Path -LiteralPath $authPath -PathType Leaf) {
-            $authText = [IO.File]::ReadAllText($authPath)
-            if ([string]::IsNullOrWhiteSpace($authText)) {
-                $authObject = [PSCustomObject]@{}
-            } else {
-                $authObject = $authText | ConvertFrom-Json
-                if ($null -eq $authObject -or $authObject -is [Array]) {
-                    throw "$authPath must contain a JSON object."
-                }
-            }
-        } else {
-            $authObject = [PSCustomObject]@{}
+    Assert-CodexRemoteDiscoveryConfig -ConfigPath $configPath
+    $authObject = [PSCustomObject]@{}
+    if (Test-Path -LiteralPath $authPath -PathType Leaf) {
+        try { $authObject = [IO.File]::ReadAllText($authPath) | ConvertFrom-Json }
+        catch { throw "Invalid auth.json. Repair it before installing; existing files were not changed." }
+        if ($null -eq $authObject -or $authObject -is [Array] -or $authObject -isnot [PSCustomObject]) {
+            throw "auth.json must contain a JSON object."
         }
     }
+    $catalogApiKey = $apiKey
+    if ([string]::IsNullOrWhiteSpace($catalogApiKey)) {
+        $catalogApiKey = [string](Get-CatalogProperty $authObject 'OPENAI_API_KEY')
+    }
+    $catalogUrl = "$cumobBaseUrl/codex/models"
+    Write-Host "Validating remote Codex model catalog ..."
+    $catalogDefaults = Get-RemoteCatalogDefaults -Url $catalogUrl -ApiKey $catalogApiKey
+    $defaultModel = $catalogDefaults.Slug
+    $defaultReasoningLevel = $catalogDefaults.ReasoningLevel
+    $imageRuntime = Ensure-ImageRuntime
 
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $backupDir = Join-Path $codexHome "backups\cumob-installer-$timestamp"
@@ -784,7 +879,7 @@ try {
         $backupDir = "$backupDir-$PID"
     }
 
-    New-Item -ItemType Directory -Force -Path $backupDir, $skillsDir, $catalogDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $backupDir, $skillsDir | Out-Null
 
     if (Test-Path -LiteralPath $configPath -PathType Leaf) {
         Copy-Item -LiteralPath $configPath -Destination (Join-Path $backupDir "config.toml")
@@ -824,10 +919,10 @@ try {
     if (Test-Path -LiteralPath $previousLegacySkillTarget) {
         Remove-Item -LiteralPath $previousLegacySkillTarget -Recurse -Force
     }
-    Copy-Item -LiteralPath $catalogSource -Destination $catalogTarget -Force
 
     $filteredLines = New-Object "System.Collections.Generic.List[string]"
     $inManagedBlock = $false
+    $featuresWritten = $false
     $section = ""
     $skipSection = $false
 
@@ -839,13 +934,13 @@ try {
 
     foreach ($line in $existingLines) {
         $trimmedLine = $line.Trim()
-        if ($line -eq "# BEGIN CUMOB CODEX ONE-CLICK INSTALLER") {
+        if ($line -eq "# BEGIN CUMOB CODEX ONE-CLICK INSTALLER" -or $line -eq "# BEGIN CUMOB ONE-CLICK INSTALLER") {
             $inManagedBlock = $true
             continue
         }
 
         if ($inManagedBlock) {
-            if ($line -eq "# END CUMOB CODEX ONE-CLICK INSTALLER") {
+            if ($line -eq "# END CUMOB CODEX ONE-CLICK INSTALLER" -or $line -eq "# END CUMOB ONE-CLICK INSTALLER") {
                 $inManagedBlock = $false
                 $section = ""
                 $skipSection = $false
@@ -876,17 +971,30 @@ try {
         }
 
         if ($section -eq "" -and
-            $line -match '^\s*(model_provider|model|disable_response_storage|model_catalog_json|model_reasoning_effort)\s*=') {
+            $line -match '^\s*["'']?(model_provider|model|disable_response_storage|model_catalog_json|model_reasoning_effort)["'']?\s*=') {
             continue
         }
 
+        if ($section -eq "" -and $line -match '^\s*["'']?features["'']?\.api_key_model_discovery\s*=') { continue }
+        if (@('features', '"features"', "'features'") -contains $section) {
+            if ($line -match '^\s*\[') {
+                $filteredLines.Add($line)
+                $filteredLines.Add('api_key_model_discovery = true')
+                $featuresWritten = $true
+                continue
+            }
+            if ($line -match '^\s*(?:api_key_model_discovery|"api_key_model_discovery"|''api_key_model_discovery'')\s*=') { continue }
+        }
         $filteredLines.Add($line)
     }
+    if (-not $featuresWritten) {
+        $filteredLines.Add("")
+        $filteredLines.Add('[features]')
+        $filteredLines.Add('api_key_model_discovery = true')
+    }
 
-    $catalogTomlPath = $catalogTarget.Replace("\", "/").Replace('"', '\"')
     $templateText = [IO.File]::ReadAllText($templateSource)
     $managedBody = $templateText.
-        Replace("{{MODEL_CATALOG_PATH}}", [string]$catalogTomlPath).
         Replace("{{DEFAULT_MODEL}}", [string]$defaultModel).
         Replace("{{DEFAULT_REASONING_LEVEL}}", [string]$defaultReasoningLevel).
         Replace("{{CUMOB_BASE_URL}}", [string]$cumobBaseUrl).
@@ -957,7 +1065,7 @@ try {
     Write-Host "codex 一键接入自定义路由 - cumob 篇 安装完成。"
     Write-Host "Backup: $backupDir"
     Write-Host "Skill: $skillTarget (downloaded version: $skillVersion)"
-    Write-Host "Model catalog: $catalogTarget"
+    Write-Host "Remote model catalog: $catalogUrl"
     Write-Host "Config: $configPath"
     Write-Host "CUMOB endpoint: $cumobBaseUrl"
     Write-Host $runtimeMessage

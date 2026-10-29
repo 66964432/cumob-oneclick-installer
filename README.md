@@ -10,7 +10,7 @@ macOS / Windows 双击入口可安装 Codex；Bash 安装脚本同时支持 Code
 
 1. 安装最新 `cumob-media-generation` Skill
 2. 写入 CUMOB provider 配置
-3. 安装自定义模型目录 `cumob-models.json`
+3. 配置 CUMOB 远端模型目录 `/v1/codex/models`
 4. 将 CUMOB API Key 合并进 Codex `auth.json`
 5. 支持选择为 Codex 或 Claude Code（或同时）安装
 
@@ -18,7 +18,7 @@ macOS / Windows 双击入口可安装 Codex；Bash 安装脚本同时支持 Code
 
 - **Codex：** 配置 CUMOB provider、模型目录、权限策略和 `auth.json`，并安装 Skill。
 - **Claude Code：** 配置 `settings.json` 中的 CUMOB / OpenAI-compatible 环境变量，安装 Skill，并创建 `/cumob-media` 命令。
-- 用户只需要下载很小的安装入口，双击即可；安装时从 GitHub 实时拉取最新 Skill、配置模板和模型目录。
+- 用户只需要下载很小的安装入口，双击即可；安装时从 GitHub 拉取最新 Skill 和配置模板，并从 CUMOB 认证接口读取模型目录。安装完成后可以删除安装器本地副本。
 - 不打包真实 API Key。
 - 重复安装可升级，并在覆盖 Codex 文件前自动备份；Claude Code 已有 Skill 目录也会先改名备份。
 
@@ -57,7 +57,7 @@ Claude Code 安装会：
 ## 安装前准备
 
 1. 已安装 [Codex](https://chatgpt.com/codex) 和/或 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-2. 电脑可访问 GitHub
+2. 电脑可访问 GitHub 和所选 CUMOB HTTPS 端点；Codex 需要支持 `model_catalog_url` 和 API Key 模型发现
 3. 准备好你的 CUMOB API Key（见下方「如何获取 CUMOB API Key」）
 4. 图片 / 视频生成建议准备 Node.js 18+ 或 Python 3；Windows 缺少运行时时安装器可自动安装 Node.js LTS
 
@@ -125,7 +125,6 @@ Parallels 的 `\\Mac\...` 共享目录也可直接运行；启动器会临时映
 即使只下载入口文件，安装器也会从 GitHub 拉取：
 
 - 最新安装逻辑
-- 最新模型目录
 - 最新配置模板
 - 最新 Skill
 
@@ -168,8 +167,6 @@ cd cumob-oneclick-installer
 <CODEX_HOME>/
 ├── auth.json
 ├── config.toml
-├── model-catalogs/
-│   └── cumob-models.json
 ├── skills/
 │   └── cumob-media-generation/
 └── backups/
@@ -222,7 +219,8 @@ cd cumob-oneclick-installer
 - 先备份旧配置、旧 auth、旧模型目录、旧 Skill
 - 升级时备份并移除旧名称 `cumob-image-generation4codex`，避免两个 Skill 并存
 - 删除旧的 CUMOB provider 段和本安装器受管段
-- 写入可移植 CUMOB 配置，并生成当前机器上的模型目录绝对路径
+- 写入随所选域名生成的 `model_catalog_url`，移除顶层 `model_catalog_json`，启用 API Key 模型发现
+- 旧本地目录文件若存在则备份保留，不再引用；发现影响 CUMOB 的 profile 覆盖配置时在修改前退出并提示
 - 保留其他 provider / MCP / 插件 / 桌面设置 / 项目权限
 - 重复运行时升级，不产生重复 TOML 键
 
@@ -243,14 +241,24 @@ video_api = "videos"
 video_model = "minimax-h3-2k"
 requires_openai_auth = true
 base_url = "https://api.cumob.com/v1"
+model_catalog_url = "https://api.cumob.com/v1/codex/models"
+
+[features]
+api_key_model_discovery = true
 ```
 
-模型目录维护采用单一来源：
+### 远端模型目录与升级
 
-- 新增、删除或修改聊天模型时，只编辑 `payload/cumob-models.json`
-- 安装器会从模型目录中选择 `priority` 最小、且 `supported_in_api = true`、`visibility = "list"` 的模型作为默认模型
-- 默认模型的 `default_reasoning_level` 也会自动写入 `model_reasoning_effort`
-- `SOURCE.json` 不再手动记录模型数量，安装测试会自动比较源目录和安装后的目录
+- Codex 的目录来源为所选 CUMOB 域名下的 `/v1/codex/models`；请求会携带当前 provider 的认证信息。安装器不会把 API Key 发往 GitHub 或跟随目录接口重定向。
+- `payload/cumob-models.json` 保留为服务端维护 / 发布参考文件，安装器不再读取或复制它。你需要让服务端发布流程把修改后的清单实际提供给该接口；只提交 GitHub 不会自行更新服务端。
+- 安装时先使用本次输入或现有 `auth.json` 中的 `OPENAI_API_KEY` 验证接口，再从可见且支持 API 的模型中按最低 `priority` 选取初始 `model` 和 `model_reasoning_effort`。示例中的模型名是示意值，以接口返回值为准。
+- 没有有效凭据、HTTP 错误、超时、重定向、超过 1 MiB、无效 JSON 或无可用默认模型时，安装器在改写 Codex 配置、认证和 Skill 前退出；不会退回预置清单。
+- 安装后由 Codex 原生获取目录，刷新时机与缓存遵循客户端机制。服务端新增 / 下架模型后重启 Codex 验证列表，不需要保留安装器或安装系统定时任务。
+- 列表更新不自动改写用户的 `model`、推理等级或已有会话。服务端若下架当前模型，用户仍需选择可用模型；重新运行安装器会重新选择初始默认值。
+- 升级旧安装时必须移除生效的 `model_catalog_json`，否则它会阻止远程获取。安装器清理顶层旧设置；影响 CUMOB 的 profile 覆盖项会明确报错并保留原配置，其他 provider 的 profile 保留。
+- 原生 `[features]` 表中的其他设置会保留。为避免损坏 TOML，内联 `features = {...}` 或除发现开关外的顶层点号 features 配置需要先整理成 `[features]` 表。
+- 使用支持此功能的新版 Codex；不会给旧版静默配置本地目录。无法自动识别客户端版本时接口需提供默认目录，也可设置 `CUMOB_CODEX_CLIENT_VERSION=0.162.1` 指定实际的 `major.minor.patch` 版本。
+- 旧 `CUMOB_MODELS_URL` 选项已移除。目录地址始终由所选 CUMOB `base_url` 派生，不支持把凭据发送到任意自定义目录地址。
 
 图片模型和视频模型属于 provider 配置，仍分别由 `payload/cumob-config.template.toml` 中的 `image_model` 和 `video_model` 管理。
 
@@ -318,7 +326,6 @@ bash install.sh --dry-run
 ```bash
 export CUMOB_INSTALLER_URL="https://github.com/66964432/cumob-oneclick-installer/archive/refs/heads/main.zip"
 export CUMOB_SKILL_URL="https://github.com/66964432/cumob-media-generation/archive/refs/heads/main.zip"
-export CUMOB_MODELS_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-models.json"
 bash install.sh
 ```
 
@@ -419,13 +426,19 @@ macOS / Linux：
 bash tests/test-install.sh
 ```
 
+目录预检与 TOML 合并测试（开发 / CI 使用 Python 3.11+）：
+
+```bash
+python3 tests/test-remote-catalog.py
+```
+
 Windows：
 
 ```powershell
 .\tests\test-install.ps1
 ```
 
-真实联网验证（会从 GitHub 下载 Skill）：
+Skill 联网验证（模型接口仍使用离线 fixture，不消耗真实 API 凭据）：
 
 ```bash
 CUMOB_LIVE_TEST=1 bash tests/test-install.sh
@@ -447,7 +460,7 @@ cumob-oneclick-installer/
 ├── install.ps1
 ├── payload/
 │   ├── cumob-config.template.toml
-│   ├── cumob-models.json
+│   ├── cumob-models.json  # 服务端发布参考，不安装到客户端
 │   ├── generate-image.ps1
 │   └── generate-image-windows.cmd
 ├── scripts/
@@ -458,4 +471,4 @@ cumob-oneclick-installer/
 └── SOURCE.json
 ```
 
-用户日常只需要下载入口文件，配置内容全部在 GitHub 上持续更新。
+用户只需运行一次安装入口。安装逻辑和 Skill 从 GitHub 发布，模型目录由 CUMOB 接口持续提供。

@@ -13,7 +13,7 @@ if errorlevel 1 (
 )
 set "SCRIPT_DIR=%CD%\"
 
-if exist "%SCRIPT_DIR%install.ps1" if exist "%SCRIPT_DIR%payload\cumob-models.json" goto install_local
+if exist "%SCRIPT_DIR%install.ps1" if exist "%SCRIPT_DIR%payload\cumob-config.template.toml" goto install_local
 goto install_remote
 
 :install_local

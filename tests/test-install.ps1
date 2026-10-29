@@ -1,12 +1,54 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
 
 $rootDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("cumob-installer-test-" + [Guid]::NewGuid().ToString("N"))
 $env:CODEX_HOME = Join-Path $testRoot ".codex"
 $env:CUMOB_INSTALL_API_KEY = "test-key-one"
+$configPath = $null
 
 try {
+    # Replace only the HTTP client factory in a temporary installer copy. Production
+    # URL/auth/version checks, HttpClient streaming, schema validation and writes run unchanged.
+    Add-Type -AssemblyName System.Net.Http
+    if ($PSVersionTable.PSEdition -eq 'Desktop') {
+        Add-Type -Path (Join-Path $rootDir 'tests/CatalogFixtureHandler.cs') -ReferencedAssemblies 'System.Net.Http'
+    } else {
+        Add-Type -Path (Join-Path $rootDir 'tests/CatalogFixtureHandler.cs')
+    }
+    function Write-FixtureInstaller {
+        param([string]$Destination)
+        $source = [IO.File]::ReadAllText((Join-Path $rootDir 'install.ps1'))
+        $tokens = $null; $parseErrors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$parseErrors)
+        if ($parseErrors.Count) { throw 'Installer has PowerShell syntax errors.' }
+        $factory = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-CumobCatalogHttpClient' }, $true)
+        if ($null -eq $factory) { throw 'Catalog HTTP factory was not found.' }
+        $replacement = 'function New-CumobCatalogHttpClient { return [Net.Http.HttpClient]::new([CumobCatalogFixtureHandler]::new()) }'
+        $source = $source.Remove($factory.Extent.StartOffset, $factory.Extent.EndOffset - $factory.Extent.StartOffset).Insert($factory.Extent.StartOffset, $replacement)
+        [IO.File]::WriteAllText($Destination, $source, [Text.UTF8Encoding]::new($true))
+    }
+    function ConvertTo-FixtureFileUrl {
+        param([string]$Path)
+        $builder = [UriBuilder]::new()
+        $builder.Scheme = 'file'
+        $builder.Host = ''
+        $builder.Path = [IO.Path]::GetFullPath($Path)
+        return $builder.Uri.AbsoluteUri
+    }
+    $localInstallerRoot = Join-Path $testRoot 'local-installer'
+    New-Item -ItemType Directory -Force -Path $localInstallerRoot | Out-Null
+    Copy-Item -LiteralPath (Join-Path $rootDir 'payload') -Destination (Join-Path $localInstallerRoot 'payload') -Recurse
+    # The local JSON must not be necessary even for a complete installation package.
+    Remove-Item -LiteralPath (Join-Path $localInstallerRoot 'payload/cumob-models.json')
+    $localInstaller = Join-Path $localInstallerRoot 'install.ps1'
+    Write-FixtureInstaller $localInstaller
+    $env:CUMOB_TEST_CATALOG = Join-Path $testRoot 'catalog.json'
+    Copy-Item -LiteralPath (Join-Path $rootDir 'payload/cumob-models.json') -Destination $env:CUMOB_TEST_CATALOG
+    $env:CUMOB_TEST_EXPECTED_KEY = 'test-key-one'
+    $env:CUMOB_CODEX_CLIENT_VERSION = '0.162.1'
+    $env:CUMOB_TEST_REQUESTS = Join-Path $testRoot 'requests.log'
+
     $fixtureSkill = Join-Path $testRoot "fixture-skill"
     $fixtureScripts = Join-Path $fixtureSkill "scripts"
     New-Item -ItemType Directory -Force -Path $fixtureScripts | Out-Null
@@ -24,6 +66,10 @@ try {
 model_provider = "old-provider"
 model = "old-model"
 model_catalog_json = "C:/old/models.json"
+
+[features]
+api_key_model_discovery = false
+other_feature = true
 
 [model_providers.cumob]
 name = "old-cumob"
@@ -82,7 +128,7 @@ localeOverride = "zh-CN"
         throw "install.ps1 is missing the required UTF-8 BOM"
     }
 
-    & (Join-Path $rootDir "install.ps1") -NoPrompt
+    & $localInstaller -NoPrompt
 
     $configPath = Join-Path $env:CODEX_HOME "config.toml"
     $authPath = Join-Path $env:CODEX_HOME "auth.json"
@@ -91,7 +137,6 @@ localeOverride = "zh-CN"
     $windowsImageLauncher = Join-Path $installedSkill "scripts\generate-image-windows.cmd"
     $config = [IO.File]::ReadAllText($configPath)
     $auth = [IO.File]::ReadAllText($authPath) | ConvertFrom-Json
-    $catalog = [IO.File]::ReadAllText((Join-Path $env:CODEX_HOME "model-catalogs\cumob-models.json")) | ConvertFrom-Json
     $sourceCatalog = [IO.File]::ReadAllText((Join-Path $rootDir "payload\cumob-models.json")) | ConvertFrom-Json
 
     if (Test-Path -LiteralPath $oldSkill) { throw "legacy Skill directory was not removed" }
@@ -106,10 +151,11 @@ localeOverride = "zh-CN"
     if (-not $config.Contains('video_api = "videos"')) { throw "video_api was not installed" }
     if (-not $config.Contains('video_model = "minimax-h3-2k"')) { throw "video model was not installed" }
     if ($auth.OPENAI_API_KEY -ne "test-key-one" -or $auth.OTHER_AUTH_FIELD -ne "keep-me") { throw "auth.json merge failed" }
-    if ($null -eq $catalog.models -or $catalog.models.Count -ne $sourceCatalog.models.Count) { throw "model catalog was not installed" }
-    $sourceSlugs = @($sourceCatalog.models | ForEach-Object { [string]$_.slug } | Sort-Object)
-    $installedSlugs = @($catalog.models | ForEach-Object { [string]$_.slug } | Sort-Object)
-    if (($installedSlugs -join "`n") -ne ($sourceSlugs -join "`n")) { throw "installed model catalog differs from source catalog" }
+    if ($config -match '(?m)^model_catalog_json\s*=') { throw "Local catalog still overrides remote discovery" }
+    if (-not $config.Contains('model_catalog_url = "https://api.cumob.com/v1/codex/models"')) { throw "Remote catalog URL not installed" }
+    if (-not $config.Contains('api_key_model_discovery = true') -or $config.Contains('api_key_model_discovery = false')) { throw "API key model discovery not enabled" }
+    if (-not $config.Contains('other_feature = true')) { throw "Other feature removed" }
+    if (Test-Path -LiteralPath (Join-Path $env:CODEX_HOME 'model-catalogs/cumob-models.json')) { throw "Installer copied a local catalog" }
     $expectedDefault = @($sourceCatalog.models |
         Where-Object { $_.supported_in_api -eq $true -and $_.visibility -eq "list" } |
         Sort-Object { [int]$_.priority } |
@@ -225,6 +271,7 @@ localeOverride = "zh-CN"
             throw "PowerShell fallback ignored --codex-home"
         }
 
+        if ($env:OS -eq 'Windows_NT') {
         $env:CUMOB_IMAGE_FORCE_POWERSHELL = "1"
         $launcherInferredText = (& $nestedLauncher `
             --prompt "Launcher infers Codex home" `
@@ -239,6 +286,7 @@ localeOverride = "zh-CN"
             throw "Windows image launcher did not infer Codex home from its install path"
         }
         Remove-Item Env:CUMOB_IMAGE_FORCE_POWERSHELL -ErrorAction SilentlyContinue
+        }
     } finally {
         if ($null -ne $savedCodexHome) { $env:CODEX_HOME = $savedCodexHome } else { Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue }
         if ($null -ne $savedUserProfile) { $env:USERPROFILE = $savedUserProfile } else { Remove-Item Env:USERPROFILE -ErrorAction SilentlyContinue }
@@ -248,6 +296,7 @@ localeOverride = "zh-CN"
         Remove-Item Env:CUMOB_IMAGE_FORCE_POWERSHELL -ErrorAction SilentlyContinue
     }
 
+    if ($env:OS -eq 'Windows_NT') {
     $env:CUMOB_IMAGE_FORCE_POWERSHELL = "1"
     $launcherDryRunText = (& $windowsImageLauncher `
         --prompt "Installer launcher configuration check" `
@@ -259,13 +308,15 @@ localeOverride = "zh-CN"
     if ($launcherDryRun.image_model -ne "gpt-image-2.5") { throw "Windows image launcher selected the wrong model" }
     Remove-Item Env:CUMOB_IMAGE_FORCE_POWERSHELL
 
+    }
+
     # No-prompt installs use the default .com endpoint even if config previously used .cn.
     $cnConfig = [IO.File]::ReadAllText($configPath).Replace(
         'base_url = "https://api.cumob.com/v1"',
         'base_url = "https://api.cumob.cn/v1"'
     )
     [IO.File]::WriteAllText($configPath, $cnConfig)
-    & (Join-Path $rootDir "install.ps1") -NoPrompt
+    & $localInstaller -NoPrompt
     $configAfterDefault = [IO.File]::ReadAllText($configPath)
     if (-not $configAfterDefault.Contains('base_url = "https://api.cumob.com/v1"')) {
         throw "no-prompt reinstall did not fall back to the default api.cumob.com endpoint"
@@ -273,9 +324,9 @@ localeOverride = "zh-CN"
 
     # Explicit env override selects .cn and skips the prompt.
     $env:CUMOB_BASE_URL = "https://api.cumob.cn/v1"
-    & (Join-Path $rootDir "install.ps1") -NoPrompt
+    & $localInstaller -NoPrompt
     $configAfterCn = [IO.File]::ReadAllText($configPath)
-    if (-not $configAfterCn.Contains('base_url = "https://api.cumob.cn/v1"')) {
+    if (-not $configAfterCn.Contains('model_catalog_url = "https://api.cumob.cn/v1/codex/models"')) {
         throw "CUMOB_BASE_URL override did not select api.cumob.cn"
     }
     $cnDryRunText = (& $powerShellFallback `
@@ -290,7 +341,7 @@ localeOverride = "zh-CN"
 
     # Explicit env override can also force .com again.
     $env:CUMOB_BASE_URL = "https://api.cumob.com/v1"
-    & (Join-Path $rootDir "install.ps1") -NoPrompt
+    & $localInstaller -NoPrompt
     $configAfterEnv = [IO.File]::ReadAllText($configPath)
     if (-not $configAfterEnv.Contains('base_url = "https://api.cumob.com/v1"')) {
         throw "CUMOB_BASE_URL override was ignored"
@@ -299,7 +350,7 @@ localeOverride = "zh-CN"
 
     $remoteOnlyDir = Join-Path $testRoot "remote-only-installer"
     New-Item -ItemType Directory -Force -Path $remoteOnlyDir | Out-Null
-    Copy-Item -LiteralPath (Join-Path $rootDir "install.ps1") -Destination (Join-Path $remoteOnlyDir "install.ps1")
+    Write-FixtureInstaller (Join-Path $remoteOnlyDir "install.ps1")
 
     $fixtureRemote = Join-Path $testRoot "remote-fixture"
     New-Item -ItemType Directory -Force -Path (Join-Path $fixtureRemote "payload") | Out-Null
@@ -321,11 +372,12 @@ localeOverride = "zh-CN"
         Sort-Object { [int]$_.priority } |
         Select-Object -First 1)[0]
 
-    $env:CUMOB_MODELS_URL = ([Uri]$remoteCatalogPath).AbsoluteUri
-    $env:CUMOB_CONFIG_TEMPLATE_URL = ([Uri](Join-Path $fixtureRemote "payload\cumob-config.template.toml")).AbsoluteUri
-    $env:CUMOB_POWERSHELL_FALLBACK_URL = ([Uri](Join-Path $fixtureRemote "payload\generate-image.ps1")).AbsoluteUri
-    $env:CUMOB_WINDOWS_IMAGE_LAUNCHER_URL = ([Uri](Join-Path $fixtureRemote "payload\generate-image-windows.cmd")).AbsoluteUri
+    $env:CUMOB_TEST_CATALOG = $remoteCatalogPath
+    $env:CUMOB_CONFIG_TEMPLATE_URL = (ConvertTo-FixtureFileUrl (Join-Path $fixtureRemote "payload\cumob-config.template.toml"))
+    $env:CUMOB_POWERSHELL_FALLBACK_URL = (ConvertTo-FixtureFileUrl (Join-Path $fixtureRemote "payload\generate-image.ps1"))
+    $env:CUMOB_WINDOWS_IMAGE_LAUNCHER_URL = (ConvertTo-FixtureFileUrl (Join-Path $fixtureRemote "payload\generate-image-windows.cmd"))
     $env:CUMOB_INSTALL_API_KEY = "test-key-two"
+    $env:CUMOB_TEST_EXPECTED_KEY = "test-key-two"
     & (Join-Path $remoteOnlyDir "install.ps1") -NoPrompt
 
     $config = [IO.File]::ReadAllText($configPath)
@@ -333,15 +385,14 @@ localeOverride = "zh-CN"
     $backups = Get-ChildItem -LiteralPath (Join-Path $env:CODEX_HOME "backups")
     if ([regex]::Matches($config, "(?m)^model_provider\s*=").Count -ne 1) { throw "reinstall duplicated model_provider" }
     if ($auth.OPENAI_API_KEY -ne "test-key-two") { throw "reinstall did not update API key" }
-    $remoteInstalled = [IO.File]::ReadAllText((Join-Path $env:CODEX_HOME "model-catalogs\cumob-models.json")) | ConvertFrom-Json
     if (-not $config.Contains(('model = "{0}"' -f $newDefault.slug))) { throw "remote catalog deletion did not update the default model" }
-    if (@($remoteInstalled.models | Where-Object { $_.slug -eq $oldDefault.slug }).Count -ne 0) { throw "removed model remains installed" }
+    if ($config -match '(?m)^model_catalog_json\s*=') { throw "Reinstall configured a local catalog" }
     if ($backups.Count -lt 2) { throw "reinstall did not create a second backup" }
 
     # Static coverage for automatic Node install controls.
     # Prefer real Node/Python when present; never force a live nodejs.org download in CI.
     $env:CUMOB_SKIP_NODE_INSTALL = "1"
-    $skipDryRunOutput = & (Join-Path $rootDir "install.ps1") -DryRun 2>&1 | Out-String
+    $skipDryRunOutput = & $localInstaller -DryRun 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
         throw "install.ps1 -DryRun failed under CUMOB_SKIP_NODE_INSTALL=1"
     }
@@ -360,7 +411,53 @@ localeOverride = "zh-CN"
         throw "install.ps1 does not persist Node.js to the user PATH"
     }
 
-    Write-Host "Windows installer integration test passed."
+    function Get-TestSnapshot {
+        $entries = @(Get-ChildItem -LiteralPath $env:CODEX_HOME -Recurse -File | Sort-Object FullName | ForEach-Object {
+            $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        })
+        return ($entries -join "`n")
+    }
+    function Assert-UnchangedFailure {
+        param([string]$Expected)
+        $before = Get-TestSnapshot
+        $requestsBefore = @([IO.File]::ReadAllLines($env:CUMOB_TEST_REQUESTS)).Count
+        $caught = $null
+        try { & $localInstaller -NoPrompt 6>$null }
+        catch { $caught = $_.Exception.Message }
+        if (-not $caught -or $caught -notmatch $Expected) { throw "Expected preflight failure matching $Expected; got $caught" }
+        if ($caught.Contains('test-key-')) { throw 'Preflight error leaked credentials.' }
+        if ($before -cne (Get-TestSnapshot)) { throw 'Failed preflight modified installed user files or backups.' }
+        $requestsAfter = @([IO.File]::ReadAllLines($env:CUMOB_TEST_REQUESTS)).Count
+        if ($requestsAfter - $requestsBefore -gt 1) { throw 'Catalog request was retried.' }
+    }
+    foreach ($mode in @('401', 'redirect', 'timeout', 'invalid-json', 'oversize')) {
+        $env:CUMOB_TEST_MODE = $mode
+        Assert-UnchangedFailure 'Remote catalog'
+    }
+    Remove-Item Env:CUMOB_TEST_MODE
+    $validCatalog = [IO.File]::ReadAllText($env:CUMOB_TEST_CATALOG)
+    foreach ($badCatalog in @('{"models":[]}', '{"data":[]}')) {
+        [IO.File]::WriteAllText($env:CUMOB_TEST_CATALOG, $badCatalog)
+        Assert-UnchangedFailure 'Remote catalog'
+    }
+    [IO.File]::WriteAllText($env:CUMOB_TEST_CATALOG, $validCatalog)
+    [IO.File]::AppendAllText($configPath, "`n[profiles.blocking]`nmodel_catalog_json = `"/profile/models.json`"`n")
+    Assert-UnchangedFailure 'Profile blocking'
+    $profileConfig = [IO.File]::ReadAllText($configPath).Replace('[profiles.blocking]', "[profiles.other]`nmodel_provider = `"other`"")
+    [IO.File]::WriteAllText($configPath, $profileConfig)
+    Remove-Item Env:CUMOB_INSTALL_API_KEY
+    & $localInstaller -NoPrompt
+    if (-not [IO.File]::ReadAllText($configPath).Contains('[profiles.other]')) { throw 'Other provider profile was removed.' }
+    $savedHomeForFresh = $env:CODEX_HOME
+    $env:CODEX_HOME = Join-Path $testRoot 'fresh-codex'
+    $env:CUMOB_INSTALL_API_KEY = 'test-key-two'
+    & $localInstaller -NoPrompt
+    $freshConfig = [IO.File]::ReadAllText((Join-Path $env:CODEX_HOME 'config.toml'))
+    if ($freshConfig.Contains('model_catalog_json') -or -not $freshConfig.Contains('api_key_model_discovery = true')) { throw 'Fresh remote discovery config is incorrect.' }
+    if (Test-Path -LiteralPath (Join-Path $env:CODEX_HOME 'model-catalogs')) { throw 'Fresh install created a local catalog directory.' }
+    $env:CODEX_HOME = $savedHomeForFresh
+
+    Write-Host "PowerShell installer integration test passed (CMD launcher checks run on Windows only)."
 
 } catch {
     $diagnostic = $_.Exception.Message
@@ -373,7 +470,7 @@ localeOverride = "zh-CN"
 } finally {
     Remove-Item Env:CUMOB_INSTALL_API_KEY -ErrorAction SilentlyContinue
     Remove-Item Env:CUMOB_SKILL_SOURCE_DIR -ErrorAction SilentlyContinue
-    Remove-Item Env:CUMOB_MODELS_URL -ErrorAction SilentlyContinue
+    foreach ($name in @('CUMOB_TEST_CATALOG', 'CUMOB_TEST_EXPECTED_KEY', 'CUMOB_CODEX_CLIENT_VERSION', 'CUMOB_TEST_REQUESTS', 'CUMOB_TEST_MODE')) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
     Remove-Item Env:CUMOB_CONFIG_TEMPLATE_URL -ErrorAction SilentlyContinue
     Remove-Item Env:CUMOB_POWERSHELL_FALLBACK_URL -ErrorAction SilentlyContinue
     Remove-Item Env:CUMOB_WINDOWS_IMAGE_LAUNCHER_URL -ErrorAction SilentlyContinue

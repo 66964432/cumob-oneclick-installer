@@ -4,9 +4,11 @@
   "skill_repository": "https://github.com/66964432/cumob-media-generation",
   "skill_branch": "main",
   "skill_version_policy": "install-time latest from main",
-  "model_catalog_source": "payload/cumob-models.json",
+  "model_catalog_source": "selected CUMOB base_url + /codex/models",
   "distribution": "github-first",
-  "packaged_on": "2026-10-02",
+  "packaged_on": "2026-10-29",
   "display_name_zh": "一键接入自定义路由 - cumob 篇 (Codex / Claude Code)",
-  "display_name_en": "One-Click Installer - CUMOB (Codex / Claude Code)"
+  "display_name_en": "One-Click Installer - CUMOB (Codex / Claude Code)",
+  "model_catalog_reference": "payload/cumob-models.json (server publishing reference only)",
+  "model_catalog_policy": "authenticated remote discovery managed by Codex; no local override"
 }

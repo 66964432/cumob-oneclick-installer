@@ -1,10 +1,9 @@
 # Portable subset of the current Codex configuration.
-# The installer fills in the catalog path and derives the default model from that catalog.
+# The installer validates the authenticated remote catalog and derives initial defaults.
 
 model_provider = "cumob"
 model = "{{DEFAULT_MODEL}}"
 disable_response_storage = true
-model_catalog_json = "{{MODEL_CATALOG_PATH}}"
 model_reasoning_effort = "{{DEFAULT_REASONING_LEVEL}}"
 
 [model_providers.cumob]
@@ -17,3 +16,4 @@ video_model = "minimax-h3-2k"
 requires_openai_auth = true
 # Both api.cumob.com and api.cumob.cn are valid CUMOB endpoints.
 base_url = "{{CUMOB_BASE_URL}}"
+model_catalog_url = "{{CUMOB_BASE_URL}}/codex/models"

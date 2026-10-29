@@ -10,6 +10,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test remote catalog preflights and TOML merging
+        run: python3 tests/test-remote-catalog.py
       - name: Validate model catalog
         run: python3 scripts/validate-model-catalog.py payload/cumob-models.json
       - name: Run installer tests
@@ -51,6 +56,9 @@ jobs:
           if errorlevel 1 exit /b 0
           echo Launcher returned success after PowerShell failed.
           exit /b 1
+      - name: Run installer tests on Windows PowerShell 5.1
+        shell: powershell
+        run: .\tests\test-install.ps1
       - name: Run installer tests
         shell: pwsh
         run: .\tests\test-install.ps1

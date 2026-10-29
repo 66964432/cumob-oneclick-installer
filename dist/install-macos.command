@@ -52,7 +52,7 @@ bootstrap_from_github() {
 }
 
 status=0
-if [ -f "$SCRIPT_DIR/install.sh" ] && [ -f "$SCRIPT_DIR/payload/cumob-models.json" ]; then
+if [ -f "$SCRIPT_DIR/install.sh" ] && [ -f "$SCRIPT_DIR/payload/cumob-config.template.toml" ]; then
   run_local "$@" || status=$?
 else
   bootstrap_from_github "$@" || status=$?

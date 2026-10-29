@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the single source of truth for Codex chat models."""
+"""Validate the repository catalog used as a CUMOB server publishing reference."""
 import json
 import re
 import sys

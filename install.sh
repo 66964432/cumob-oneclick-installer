@@ -6,7 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
 DEFAULT_INSTALLER_ARCHIVE_URL="https://github.com/66964432/cumob-oneclick-installer/archive/refs/heads/main.zip"
 DEFAULT_SKILL_ARCHIVE_URL="https://github.com/66964432/cumob-media-generation/archive/refs/heads/main.zip"
-DEFAULT_MODELS_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-models.json"
+DEFAULT_PREPARE_MJS_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/scripts/prepare-codex.mjs"
+DEFAULT_PREPARE_PY_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/scripts/prepare_codex.py"
 DEFAULT_TEMPLATE_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-config.template.toml"
 DEFAULT_MERGE_AWK_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/scripts/merge-config.awk"
 DEFAULT_MERGE_AUTH_MJS_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/scripts/merge-auth.mjs"
@@ -143,6 +144,7 @@ normalize_cumob_base_url() {
       return 1
       ;;
   esac
+  value="${value/http:\/\//https:\/\/}"
   case "$value" in
     */v1) printf '%s\n' "$value" ;;
     *) printf '%s/v1\n' "$value" ;;
@@ -252,7 +254,7 @@ usage() {
     "  CUMOB_SKILL_ARCHIVE         Local Skill zip path, or Skill archive URL." \
     "  CUMOB_SKILL_SOURCE_DIR      Use a local unpacked Skill directory." \
     "  CUMOB_INSTALLER_URL         Override installer archive URL used by bootstrap." \
-    "  CUMOB_MODELS_URL            Override remote model catalog URL." \
+    "  CUMOB_CODEX_CLIENT_VERSION  Optional major.minor.patch for catalog validation." \
     "  CUMOB_CONFIG_TEMPLATE_URL   Override remote config template URL." \
     "  CUMOB_BASE_URL              Skip the prompt and force https://api.cumob.com/v1 or https://api.cumob.cn/v1." \
     "" \
@@ -296,72 +298,41 @@ download_file() {
   curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$url"
 }
 
-resolve_catalog_defaults() {
-  local catalog_path="$1"
+resolve_remote_catalog_defaults() {
   local result=""
-
+  local node_major="0"
   if command -v node >/dev/null 2>&1; then
-    result="$(node - "$catalog_path" <<'NODE'
-const fs = require("fs");
-const catalog = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-const models = Array.isArray(catalog.models) ? catalog.models : [];
-const eligible = models.filter((model) =>
-  model && model.supported_in_api === true && model.visibility === "list" &&
-  typeof model.slug === "string" && Number.isInteger(model.priority) &&
-  typeof model.default_reasoning_level === "string"
-);
-if (!eligible.length) throw new Error("no visible API-supported model with a valid priority");
-eligible.sort((a, b) => a.priority - b.priority);
-process.stdout.write(`${eligible[0].slug}\t${eligible[0].default_reasoning_level}`);
-NODE
-    )"
-  elif command -v python3 >/dev/null 2>&1; then
-    result="$(python3 - "$catalog_path" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as stream:
-    catalog = json.load(stream)
-models = catalog.get("models", []) if isinstance(catalog, dict) else []
-eligible = [
-    model for model in models
-    if isinstance(model, dict)
-    and model.get("supported_in_api") is True
-    and model.get("visibility") == "list"
-    and isinstance(model.get("slug"), str)
-    and isinstance(model.get("priority"), int)
-    and not isinstance(model.get("priority"), bool)
-    and isinstance(model.get("default_reasoning_level"), str)
-]
-if not eligible:
-    raise SystemExit("no visible API-supported model with a valid priority")
-model = min(eligible, key=lambda item: item["priority"])
-print(f'{model["slug"]}\t{model["default_reasoning_level"]}', end="")
-PY
-    )"
+    node_major="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || printf '0')"
+  fi
+  if [ "$node_major" -ge 18 ] && [ -f "$PREPARE_MJS" ]; then
+    result="$(CUMOB_INSTALL_API_KEY="$api_key" node "$PREPARE_MJS" "$CONFIG_PATH" "$AUTH_PATH" "$catalog_url")" || return 1
+  elif command -v python3 >/dev/null 2>&1 && [ -f "$PREPARE_PY" ]; then
+    result="$(CUMOB_INSTALL_API_KEY="$api_key" python3 "$PREPARE_PY" "$CONFIG_PATH" "$AUTH_PATH" "$catalog_url")" || return 1
   else
-    printf '%s\n' "A Node.js or Python 3 runtime is required to read the model catalog." >&2
+    printf '%s\n' "Node.js 18+ or Python 3 is required to validate the remote model catalog." >&2
     exit 1
   fi
-
   IFS=$'\t' read -r DEFAULT_MODEL DEFAULT_REASONING_LEVEL <<< "$result"
   if [ -z "$DEFAULT_MODEL" ] || [ -z "$DEFAULT_REASONING_LEVEL" ]; then
-    printf '%s\n' "Invalid model catalog: could not determine the default model." >&2
+    printf '%s\n' "Remote model catalog did not provide valid initial defaults." >&2
     exit 1
   fi
 }
 
 ensure_runtime_assets() {
-  local catalog_source="$PAYLOAD_DIR/cumob-models.json"
+  local prepare_mjs="$SCRIPT_DIR/scripts/prepare-codex.mjs"
+  local prepare_py="$SCRIPT_DIR/scripts/prepare_codex.py"
   local template_source="$PAYLOAD_DIR/cumob-config.template.toml"
   local merge_awk="$SCRIPT_DIR/scripts/merge-config.awk"
   local merge_auth_mjs="$SCRIPT_DIR/scripts/merge-auth.mjs"
   local merge_auth_py="$SCRIPT_DIR/scripts/merge_auth.py"
 
-  if [ -f "$catalog_source" ] &&
+  if { [ -f "$prepare_mjs" ] || [ -f "$prepare_py" ]; } &&
     [ -f "$template_source" ] &&
     [ -f "$merge_awk" ] &&
     { [ -f "$merge_auth_mjs" ] || [ -f "$merge_auth_py" ]; }; then
-    CATALOG_SOURCE="$catalog_source"
+    PREPARE_MJS="$prepare_mjs"
+    PREPARE_PY="$prepare_py"
     TEMPLATE_SOURCE="$template_source"
     MERGE_AWK="$merge_awk"
     MERGE_AUTH_MJS="$merge_auth_mjs"
@@ -374,16 +345,22 @@ ensure_runtime_assets() {
   DOWNLOAD_ROOT="$RUNTIME_ROOT"
   mkdir -p "$RUNTIME_ROOT/payload" "$RUNTIME_ROOT/scripts"
 
-  CATALOG_SOURCE="$RUNTIME_ROOT/payload/cumob-models.json"
+  PREPARE_MJS="$RUNTIME_ROOT/scripts/prepare-codex.mjs"
+  PREPARE_PY="$RUNTIME_ROOT/scripts/prepare_codex.py"
   TEMPLATE_SOURCE="$RUNTIME_ROOT/payload/cumob-config.template.toml"
   MERGE_AWK="$RUNTIME_ROOT/scripts/merge-config.awk"
   MERGE_AUTH_MJS="$RUNTIME_ROOT/scripts/merge-auth.mjs"
   MERGE_AUTH_PY="$RUNTIME_ROOT/scripts/merge_auth.py"
 
-  if [ -f "$catalog_source" ]; then
-    cp "$catalog_source" "$CATALOG_SOURCE"
+  if [ -f "$prepare_mjs" ]; then
+    cp "$prepare_mjs" "$PREPARE_MJS"
   else
-    download_file "${CUMOB_MODELS_URL:-$DEFAULT_MODELS_URL}" "$CATALOG_SOURCE"
+    download_file "${CUMOB_PREPARE_MJS_URL:-$DEFAULT_PREPARE_MJS_URL}" "$PREPARE_MJS" || rm -f "$PREPARE_MJS"
+  fi
+  if [ -f "$prepare_py" ]; then
+    cp "$prepare_py" "$PREPARE_PY"
+  else
+    download_file "${CUMOB_PREPARE_PY_URL:-$DEFAULT_PREPARE_PY_URL}" "$PREPARE_PY" || rm -f "$PREPARE_PY"
   fi
 
   if [ -f "$template_source" ]; then
@@ -410,7 +387,7 @@ ensure_runtime_assets() {
     download_file "${CUMOB_MERGE_AUTH_PY_URL:-$DEFAULT_MERGE_AUTH_PY_URL}" "$MERGE_AUTH_PY" || true
   fi
 
-  if [ ! -f "$CATALOG_SOURCE" ] || [ ! -f "$TEMPLATE_SOURCE" ] || [ ! -f "$MERGE_AWK" ]; then
+  if { [ ! -f "$PREPARE_MJS" ] && [ ! -f "$PREPARE_PY" ]; } || [ ! -f "$TEMPLATE_SOURCE" ] || [ ! -f "$MERGE_AWK" ]; then
     printf '%s\n' "Failed to obtain installer assets from GitHub. Existing files were not changed." >&2
     exit 1
   fi
@@ -562,8 +539,7 @@ SKILLS_DIR="$CODEX_HOME/skills"
 SKILL_TARGET="$SKILLS_DIR/cumob-media-generation"
 LEGACY_SKILL_TARGET="$SKILLS_DIR/cumob-media-generation4codex"
 PREVIOUS_LEGACY_SKILL_TARGET="$SKILLS_DIR/cumob-image-generation4codex"
-CATALOG_DIR="$CODEX_HOME/model-catalogs"
-CATALOG_TARGET="$CATALOG_DIR/cumob-models.json"
+CATALOG_TARGET="$CODEX_HOME/model-catalogs/cumob-models.json"
 CONFIG_PATH="$CODEX_HOME/config.toml"
 AUTH_PATH="$CODEX_HOME/auth.json"
 
@@ -577,12 +553,12 @@ if [ "$DRY_RUN" -eq 1 ]; then
     "Codex home: $CODEX_HOME" \
     "Claude home: $CLAUDE_HOME" \
     "Skill target (Codex): $SKILL_TARGET" \
-    "Catalog target: $CATALOG_TARGET" \
+    "Remote model catalog: $(normalize_cumob_base_url "${CUMOB_BASE_URL:-https://api.cumob.com/v1}")/codex/models" \
     "Config target: $CONFIG_PATH" \
     "Auth target: $AUTH_PATH" \
     "Installer source: ${CUMOB_INSTALLER_URL:-$DEFAULT_INSTALLER_ARCHIVE_URL}" \
     "Skill source: ${CUMOB_SKILL_URL:-$DEFAULT_SKILL_ARCHIVE_URL}" \
-    "Models source: ${CUMOB_MODELS_URL:-$DEFAULT_MODELS_URL}"
+    "Catalog validation: authenticated CUMOB HTTPS endpoint (no local catalog installed)"
   exit 0
 fi
 
@@ -596,7 +572,11 @@ done
 
 if $CODEX_SELECTED; then
   ensure_runtime_assets
-  resolve_catalog_defaults "$CATALOG_SOURCE"
+  if ! grep -Fq 'model_catalog_url = "{{CUMOB_BASE_URL}}/codex/models"' "$TEMPLATE_SOURCE" ||
+    grep -Eq '^[[:space:]]*model_catalog_json[[:space:]]*=' "$TEMPLATE_SOURCE"; then
+    printf '%s\n' "Config template does not support remote catalogs. Update your template; existing files were not changed." >&2
+    exit 1
+  fi
 fi
 
 # ── Download skill archive (shared by both platforms) ────────
@@ -648,6 +628,11 @@ if [ -z "$api_key" ] && [ "$NO_PROMPT" -eq 0 ] && [ -t 0 ]; then
 fi
 
 cumob_base_url="$(resolve_cumob_base_url "$CONFIG_PATH" "$NO_PROMPT")"
+catalog_url="$cumob_base_url/codex/models"
+if $CODEX_SELECTED; then
+  info "Validating remote Codex model catalog ..."
+  resolve_remote_catalog_defaults
+fi
 
 timestamp="$(date '+%Y%m%d-%H%M%S')"
 backup_dir="$CODEX_HOME/backups/cumob-installer-$timestamp"
@@ -657,7 +642,7 @@ fi
 
 # ── Codex installation ───────────────────────────────────────
 if $CODEX_SELECTED; then
-  mkdir -p "$backup_dir" "$SKILLS_DIR" "$CATALOG_DIR"
+  mkdir -p "$backup_dir" "$SKILLS_DIR"
 
   if [ -f "$CONFIG_PATH" ]; then
     cp "$CONFIG_PATH" "$backup_dir/config.toml"
@@ -685,7 +670,6 @@ if $CODEX_SELECTED; then
   mv "$temp_skill" "$SKILL_TARGET"
   rm -rf "$LEGACY_SKILL_TARGET"
   rm -rf "$PREVIOUS_LEGACY_SKILL_TARGET"
-  cp "$CATALOG_SOURCE" "$CATALOG_TARGET"
 
   FILTERED_CONFIG="$(mktemp "${TMPDIR:-/tmp}/cumob-config-filtered.XXXXXX")"
   NEW_CONFIG="$(mktemp "${TMPDIR:-/tmp}/cumob-config-new.XXXXXX")"
@@ -693,16 +677,12 @@ if $CODEX_SELECTED; then
   if [ -f "$CONFIG_PATH" ]; then
     awk -f "$MERGE_AWK" "$CONFIG_PATH" > "$FILTERED_CONFIG"
   else
-    : > "$FILTERED_CONFIG"
+    awk -f "$MERGE_AWK" /dev/null > "$FILTERED_CONFIG"
   fi
-
-  catalog_toml_path="${CATALOG_TARGET//\\/\\\\}"
-  catalog_toml_path="${catalog_toml_path//\"/\\\"}"
 
   if [ -f "$TEMPLATE_SOURCE" ]; then
     managed_block="$(
       sed \
-        -e "s|{{MODEL_CATALOG_PATH}}|$catalog_toml_path|g" \
         -e "s|{{DEFAULT_MODEL}}|$DEFAULT_MODEL|g" \
         -e "s|{{DEFAULT_REASONING_LEVEL}}|$DEFAULT_REASONING_LEVEL|g" \
         -e "s|{{CUMOB_BASE_URL}}|$cumob_base_url|g" \
@@ -714,7 +694,6 @@ if $CODEX_SELECTED; then
         'model_provider = "cumob"' \
         "model = \"$DEFAULT_MODEL\"" \
         'disable_response_storage = true' \
-        "model_catalog_json = \"$catalog_toml_path\"" \
         "model_reasoning_effort = \"$DEFAULT_REASONING_LEVEL\"" \
         '' \
         '[model_providers.cumob]' \
@@ -725,7 +704,8 @@ if $CODEX_SELECTED; then
         'video_api = "videos"' \
         'video_model = "minimax-h3-2k"' \
         'requires_openai_auth = true' \
-        "base_url = \"$cumob_base_url\""
+        "base_url = \"$cumob_base_url\"" \
+        "model_catalog_url = \"$catalog_url\""
     )"
   fi
 
@@ -796,7 +776,7 @@ if $CODEX_SELECTED; then
   printf '%s\n' \
     "Codex backup: $backup_dir" \
     "Codex skill: $SKILL_TARGET (version: $skill_version)" \
-    "Model catalog: $CATALOG_TARGET" \
+    "Remote model catalog: $catalog_url" \
     "Codex config: $CONFIG_PATH" \
     "CUMOB endpoint: $cumob_base_url"
 fi

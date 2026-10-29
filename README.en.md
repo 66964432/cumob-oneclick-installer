@@ -10,7 +10,7 @@ After installation, it automatically:
 
 1. Installs the latest `cumob-media-generation` Skill
 2. Writes the CUMOB provider configuration
-3. Installs the custom model catalog `cumob-models.json`
+3. Configures the authenticated CUMOB remote catalog at `/v1/codex/models`
 4. Merges the CUMOB API Key into Codex `auth.json`
 5. Supports choosing to install for Codex or Claude Code (or both)
 
@@ -18,7 +18,7 @@ After installation, it automatically:
 
 - **Codex:** Configure the CUMOB provider, model catalog, permission policy, and `auth.json`, then install the Skill.
 - **Claude Code:** Configure CUMOB / OpenAI-compatible environment variables in `settings.json`, install the Skill, and create the `/cumob-media` command.
-- Users only need a tiny install entry file and a double-click; the installer pulls the latest Skill, config template, and model catalog from GitHub at install time.
+- Users only need a tiny install entry file and a double-click; the installer pulls the Skill and config template from GitHub and validates the catalog on CUMOB. The local installer copy can be deleted afterward.
 - Real API keys are never packaged.
 - Re-running the installer upgrades safely, backing up Codex files first and renaming an existing Claude Code Skill directory before replacement.
 
@@ -125,7 +125,6 @@ Parallels shared folders under `\\Mac\...` are supported. The launcher temporari
 Even if you only download the entry file, the installer still pulls from GitHub:
 
 - Latest installer logic
-- Latest model catalog
 - Latest config template
 - Latest Skill
 
@@ -168,8 +167,6 @@ Files written:
 <CODEX_HOME>/
 ├── auth.json
 ├── config.toml
-├── model-catalogs/
-│   └── cumob-models.json
 ├── skills/
 │   └── cumob-media-generation/
 └── backups/
@@ -222,7 +219,8 @@ The installer never fully overwrites `config.toml`. It will:
 - Back up the old config, auth, model catalog, and Skill first
 - Back up and remove the legacy `cumob-image-generation4codex` directory during upgrades to avoid duplicate Skills
 - Remove the previous CUMOB provider section and installer-managed section
-- Write portable CUMOB settings and generate the local absolute model-catalog path
+- Write `model_catalog_url` for the selected CUMOB domain, remove top-level `model_catalog_json`, and enable API-key model discovery
+- Back up and retain any old local catalog without referencing it; reject conflicting CUMOB profile overrides before changes
 - Preserve other providers / MCP / plugins / desktop settings / project permissions
 - Merge Claude Code's `settings.json.env` without replacing unrelated environment variables
 - Support re-runs without creating duplicate TOML keys
@@ -244,14 +242,24 @@ video_api = "videos"
 video_model = "minimax-h3-2k"
 requires_openai_auth = true
 base_url = "https://api.cumob.com/v1"
+model_catalog_url = "https://api.cumob.com/v1/codex/models"
+
+[features]
+api_key_model_discovery = true
 ```
 
-Model catalog maintenance uses a single source of truth:
+### Remote catalogs and migration
 
-- Add, remove, or modify chat models only in `payload/cumob-models.json`
-- The installer selects the model with the lowest `priority` among entries where `supported_in_api = true` and `visibility = "list"` as the default model
-- The selected model's `default_reasoning_level` is also written to `model_reasoning_effort`
-- `SOURCE.json` no longer stores a manually maintained model count; installer tests compare the source and installed catalogs automatically
+- Codex discovers models through `/v1/codex/models` on the selected CUMOB domain, using the provider's credentials. The installer never sends that key to GitHub and never follows catalog redirects.
+- `payload/cumob-models.json` remains a server publishing reference, not a client installation dependency. The server deployment must actually publish updated entries; a GitHub commit alone does not update a running server.
+- Before changing Codex config, authentication or Skill files, the installer validates the endpoint with the supplied API key or the existing `auth.json` `OPENAI_API_KEY`. The lowest-priority visible API-supported model supplies the initial model and reasoning level. Model names in examples are illustrative.
+- Missing credentials, HTTP errors, timeouts, redirects, responses exceeding 1 MiB, invalid JSON, and catalogs without an eligible default abort installation without falling back to a packaged catalog.
+- After installation, Codex handles discovery and caching. Restart Codex after publishing a catalog change to verify its list. No retained installer, startup wrapper or scheduled task is needed.
+- Catalog refreshes do not rewrite the user's selected `model`, reasoning effort or existing sessions. If the server removes the selected model, choose an available model; rerunning the installer selects initial defaults again.
+- Migration removes the top-level local catalog override because it prevents remote fetching. Conflicting CUMOB profile settings stop installation with an actionable message; profiles explicitly using another provider remain intact.
+- Other `[features]` settings are preserved. Inline `features = {...}` and top-level dotted feature settings other than the discovery switch must first be converted to a `[features]` table to avoid corrupting TOML.
+- Use an up-to-date Codex version supporting `model_catalog_url` and API-key discovery. No silent legacy local-catalog mode is installed. If the client version cannot be detected, the server must support a default catalog; optionally set `CUMOB_CODEX_CLIENT_VERSION=0.162.1` to your actual `major.minor.patch` version.
+- `CUMOB_MODELS_URL` is retired. The catalog URL is derived from the selected CUMOB `base_url`; arbitrary credential-receiving catalog URLs are not supported.
 
 Image and video models are provider settings and remain managed by `image_model` and `video_model` in `payload/cumob-config.template.toml`.
 
@@ -319,7 +327,6 @@ Custom remote sources:
 ```bash
 export CUMOB_INSTALLER_URL="https://github.com/66964432/cumob-oneclick-installer/archive/refs/heads/main.zip"
 export CUMOB_SKILL_URL="https://github.com/66964432/cumob-media-generation/archive/refs/heads/main.zip"
-export CUMOB_MODELS_URL="https://raw.githubusercontent.com/66964432/cumob-oneclick-installer/main/payload/cumob-models.json"
 bash install.sh
 ```
 
@@ -420,6 +427,12 @@ macOS / Linux:
 bash tests/test-install.sh
 ```
 
+Catalog preflight and TOML merge tests (development / CI requires Python 3.11+):
+
+```bash
+python3 tests/test-remote-catalog.py
+```
+
 Windows:
 
 ```powershell
@@ -448,7 +461,7 @@ cumob-oneclick-installer/
 ├── install.ps1
 ├── payload/
 │   ├── cumob-config.template.toml
-│   ├── cumob-models.json
+│   ├── cumob-models.json  # Server publishing reference; not installed
 │   ├── generate-image.ps1
 │   └── generate-image-windows.cmd
 ├── scripts/
@@ -459,4 +472,4 @@ cumob-oneclick-installer/
 └── SOURCE.json
 ```
 
-Users only need the entry files day to day. All configuration content continues to be maintained on GitHub.
+Users run the installer entry point once. Installer logic and the Skill are published through GitHub; CUMOB serves the current model catalog directly.

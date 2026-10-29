@@ -2,6 +2,7 @@ BEGIN {
   in_managed = 0
   section = ""
   skip_section = 0
+  features_written = 0
 }
 
 {
@@ -42,6 +43,12 @@ BEGIN {
     if (skip_section) {
       next
     }
+    if (section == "features" || section == "\"features\"" || section == "'features'") {
+      print line
+      print "api_key_model_discovery = true"
+      features_written = 1
+      next
+    }
   }
 
   if (skip_section) {
@@ -49,10 +56,26 @@ BEGIN {
   }
 
   if (section == "") {
-    if (line ~ /^[[:space:]]*(model_provider|model|disable_response_storage|model_catalog_json|model_reasoning_effort)[[:space:]]*=/) {
+    if (line ~ /^[[:space:]]*["']?(model_provider|model|disable_response_storage|model_catalog_json|model_reasoning_effort)["']?[[:space:]]*=/) {
+      next
+    }
+    if (line ~ /^[[:space:]]*["']?features["']?\.api_key_model_discovery[[:space:]]*=/) {
+      next
+    }
+  }
+  if (section == "features" || section == "\"features\"" || section == "'features'") {
+    if (line ~ /^[[:space:]]*(api_key_model_discovery|"api_key_model_discovery"|'api_key_model_discovery')[[:space:]]*=/) {
       next
     }
   }
 
   print line
+}
+
+END {
+  if (!features_written) {
+    print ""
+    print "[features]"
+    print "api_key_model_discovery = true"
+  }
 }

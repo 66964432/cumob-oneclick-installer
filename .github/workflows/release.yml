@@ -38,6 +38,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test remote catalog preflights and TOML merging
+        run: python3 tests/test-remote-catalog.py
       - name: Run installer tests
         run: bash tests/test-install.sh
 
