@@ -63,7 +63,7 @@ Claude Code 安装会：
 
 ## 如何获取 CUMOB API Key
 
-安装器本身不提供密钥，需要先到 CUMOB 平台（https://api.cumob.com）注册 / 登录后自行创建。
+安装器本身不提供密钥，需要先到 CUMOB 平台[https://api.cumob.com](https://api.cumob.com)注册 / 登录后自行创建。
 
 ### 平台与域名
 
